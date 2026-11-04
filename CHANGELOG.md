@@ -19,6 +19,7 @@ How to update:
 
 ### Added
 
+- Added `CYBERGYM_MASK_MAP` support to CyberGym task preparation so runs against mask-map-enabled verification servers generate masked task ids (and matching checksums) in `submit.sh`, fixing `Invalid task_id` rejections on submission.
 - Added `AgentSpec.tool_name` so delegate workers can expose task-oriented model-facing tool names while keeping the registry agent name stable.
 - Added qita's trajectory analysis workbench with diagnosis-first run pages, derived failure insights, focus navigation, critical-step guidance, an inspector panel, and expandable full-content evidence views for long thoughts, observations, parser diagnostics, actions, and critic outputs.
 - Added qita `step_interactions`, a derived action-observation view that pairs each action with its complete arguments, invocation metadata, model-visible result, and canonical raw result while separating environment-only and unmatched evidence.

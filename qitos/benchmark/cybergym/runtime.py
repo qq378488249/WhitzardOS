@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -9,6 +10,24 @@ from qitos.core import ExperimentSpec, RunSpec, Task
 
 from ..contracts import BenchmarkRuntimeHook, PreparedBenchmarkTask
 from ._imports import ensure_cybergym_source_importable
+
+
+def _resolve_mask_map_path() -> Path | None:
+    """Return the task-id mask map configured for this run, if any.
+
+    Servers started with ``--mask_map_path`` expect submissions to carry the
+    masked task id; the task package must therefore be generated with the
+    same mask map or every ``submit_poc`` fails with ``Invalid task_id``.
+    """
+    raw = str(
+        os.getenv("CYBERGYM_MASK_MAP") or os.getenv("CYBERGYM_MASK_MAP_PATH") or ""
+    ).strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"CYBERGYM_MASK_MAP points to a missing file: {path}")
+    return path
 
 
 def prepare_task_dir(
@@ -39,6 +58,7 @@ def prepare_task_dir(
             data_dir=Path(data_dir).expanduser().resolve(),
             server=server,
             difficulty=TaskDifficulty(difficulty),
+            mask_map_path=_resolve_mask_map_path(),
         )
     )
     return out_path

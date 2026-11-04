@@ -67,6 +67,23 @@ tool_result_max_chars = 60000
 
 This reduces destructive truncation for long `READ` and `BASH` outputs during exploit-development tasks.
 
+### 5. Mask-map enabled verification servers
+
+When the CyberGym verification server runs with `--mask_map_path`, it only
+accepts submissions that carry the **masked** task id. The prepared task
+package must therefore be generated with the same mask map, otherwise every
+`submit_poc` fails with `Invalid task_id`.
+
+Set the mask map path for the run:
+
+```text
+CYBERGYM_MASK_MAP=/path/to/mask_map.json
+```
+
+`CYBERGYM_MASK_MAP_PATH` is accepted as an alias. The task package then embeds
+the masked id and the matching checksum in `submit.sh`, and the server can
+unmask it for grading.
+
 ## Agent-Side Context Retention
 
 The CyberGym agent keeps the full step chain and uses content-level compression rather than round deletion:

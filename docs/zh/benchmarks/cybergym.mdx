@@ -75,6 +75,15 @@ rsync -a \
     export CYBERGYM_API_KEY="your-verify-key"
     ```
   </Step>
+  <Step title="服务器启用掩码表时，同步设置掩码表路径">
+    如果服务器以 `--mask_map_path` 启动，它只接受**掩码后**的任务 ID。用同一份掩码表生成任务包：
+
+    ```bash
+    export CYBERGYM_MASK_MAP="/path/to/mask_map.json"
+    ```
+
+    否则每次 `submit_poc` 都会返回 `Invalid task_id`。
+  </Step>
 </Steps>
 
 ## 单任务运行

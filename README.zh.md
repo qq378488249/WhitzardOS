@@ -18,6 +18,7 @@ QitOS 主仓库是小而清晰的核心框架。产品级 / 展示级应用会�
 
 ## 最新进展
 
+- **CyberGym 跑通掩码表服务器**：新增 `CYBERGYM_MASK_MAP`，让任务包用掩码后的任务 ID 与匹配的 checksum 生成，PoC 提交不再被 `Invalid task_id` 拒绝；上下文压缩也会保留严格 OpenAI 兼容网关要求的 `tool_call_id` 关联。
 - **qita 轨迹分析工作台**：run 页面现在默认进入失败诊断视图，用 Focus Navigator、Agent Behavior Story 和右侧 Inspector 引导用户先看关键证据。每步按照 `Input -> Thought -> Action Calls -> Environment Observation` 展示；每个 action 都和自己的完整参数、状态、耗时及 model-visible result 成对出现，canonical raw 与无法配对的证据仍可在 Inspector 审计。异常调用默认展开、成功调用默认折叠，长正文自动折行且绝不会只有截断预览。CyberGym 的预算耗尽和 `submit_poc` 验证失败会被提升为重点复盘信号；Light/Dark 主题覆盖 board、run、replay 与 compare 页面。
 
 ## v0.5.0 最新进展

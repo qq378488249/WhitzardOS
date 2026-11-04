@@ -166,3 +166,33 @@ class CybergymRecipeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CybergymMaskMapTests(unittest.TestCase):
+    def test_mask_map_unset_returns_none(self):
+        from qitos.benchmark.cybergym.runtime import _resolve_mask_map_path
+
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop("CYBERGYM_MASK_MAP", None)
+            os.environ.pop("CYBERGYM_MASK_MAP_PATH", None)
+            self.assertIsNone(_resolve_mask_map_path())
+
+    def test_mask_map_env_points_to_existing_file(self):
+        from qitos.benchmark.cybergym.runtime import _resolve_mask_map_path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mask = Path(tmpdir) / "mask_map.json"
+            mask.write_text("{}", encoding="utf-8")
+            with mock.patch.dict("os.environ", {"CYBERGYM_MASK_MAP": str(mask)}):
+                self.assertEqual(_resolve_mask_map_path(), mask.resolve())
+
+    def test_mask_map_env_missing_file_raises(self):
+        from qitos.benchmark.cybergym.runtime import _resolve_mask_map_path
+
+        with mock.patch.dict(
+            "os.environ", {"CYBERGYM_MASK_MAP": "Z:/definitely/missing/mask_map.json"}
+        ):
+            with self.assertRaises(FileNotFoundError):
+                _resolve_mask_map_path()
