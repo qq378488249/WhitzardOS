@@ -26,6 +26,26 @@ def test_resolve_family_preset_for_gold_families() -> None:
     assert resolve_family_preset("gemma-4-31b-it").id == "gemma-4"
 
 
+def test_resolve_family_preset_for_mimo_family() -> None:
+    assert resolve_family_preset("mimo-v2.6-flash").id == "mimo"
+    assert resolve_family_preset("mimo-v2.6-pro").id == "mimo"
+    assert resolve_family_preset("xiaomi/mimo-v2.6-flash").id == "mimo"
+
+
+def test_build_harness_policy_keeps_mimo_multi_action_chain() -> None:
+    harness = build_harness_policy(model_name="mimo-v2.6-flash")
+    assert harness.family_preset.id == "mimo"
+    assert harness.protocol.id == "json_decision_multi_v1"
+    assert harness.protocol.fallback_protocols == (
+        "json_decision_v1",
+        "xml_decision_v1",
+        "react_text_v1",
+    )
+    assert harness.tool_policy.primary_delivery == "api_parameter"
+    assert harness.tool_policy.native_tool_call_preferred is True
+    assert harness.parser_name == "JsonDecisionParser"
+
+
 def test_profile_registry_is_derived_from_presets() -> None:
     assert infer_model_profile("GLM-5.1-sii").default_protocol == "json_decision_v1"
     assert infer_model_profile("moonshot-v1-128k").default_protocol == "json_decision_v1"

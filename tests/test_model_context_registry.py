@@ -13,6 +13,9 @@ def test_infer_context_window_for_common_models() -> None:
     assert infer_context_window("MiniMax-M2.5") == 128_000
     assert infer_context_window("gpt-oss-120b") == 128_000
     assert infer_context_window("gemma-4-31b-it") == 128_000
+    assert infer_context_window("deepseek-v4.1-flash") == 262_144
+    assert infer_context_window("mimo-v2.6-flash") == 262_144
+    assert infer_context_window("mimo-v2.6-pro") == 262_144
     assert infer_context_window("unknown-model", fallback=99_999) == 99_999
 
 

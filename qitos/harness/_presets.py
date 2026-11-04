@@ -242,6 +242,32 @@ _PRESETS: tuple[FamilyPreset, ...] = (
         notes="DeepSeek models work best with JSON decision protocol, falling back to tool_use_xml for models that emit XML.",
         recommended_models=("ds-v4-pro", "ds-v4-flash", "deepseek-chat"),
     ),
+    FamilyPreset(
+        id="mimo",
+        display_name="MiMo",
+        model_matchers=("mimo", "xiaomi/mimo"),
+        adapter_kind="openai-compatible",
+        default_protocol="json_decision_multi_v1",
+        fallback_protocols=("json_decision_v1", "xml_decision_v1", "react_text_v1"),
+        tool_policy=ToolPolicy(
+            primary_delivery="api_parameter",
+            fallback_delivery="prompt_injection",
+            native_tool_call_preferred=True,
+            notes="MiMo V2 supports native OpenAI-compatible tool calls; keep the multi-action JSON lane the CyberGym agent is tuned on.",
+        ),
+        context_policy=ContextPolicy(
+            context_window_hint=262_144,
+            fallback_context_window=131_072,
+            notes="MiMo V2.6 endpoints serve up to 1M tokens; 256k keeps long runs from exhausting host memory, because the engine keeps the whole history in RAM.",
+        ),
+        notes="Xiaomi MiMo family served through OpenAI-compatible endpoints. Reasoning generations need a larger output budget than the 8k default.",
+        recommended_models=("mimo-v2.6-flash", "mimo-v2.6-pro"),
+        recommended_max_steps=30,
+        recommended_max_tokens=500_000,
+        recommended_retry_budget=3,
+        recommended_temperature=0.2,
+        recommended_request_kwargs={"parallel_tool_calls": True},
+    ),
 )
 
 

@@ -13,7 +13,13 @@ from typing import Any, Dict, Optional
 
 DEFAULT_MAX_TOKENS = 8192
 GLM_DEFAULT_MAX_TOKENS = 20000
+# Reasoning models spend output budget on reasoning before emitting the
+# answer/tool call; the 8k default truncates them mid-thought.
+REASONING_DEFAULT_MAX_TOKENS = 65536
 DEFAULT_API_TIMEOUT = 360  # standard benchmark timeout: GLM responses can be long (max_tokens 20000); a short timeout cuts legit generations
+# Reasoning generations routinely exceed the standard timeout, and an aborted
+# request restarts generation from scratch on retry.
+REASONING_API_TIMEOUT = 1800
 
 
 def build_inference_task_id(benchmark_task_id: str) -> str:
@@ -25,18 +31,32 @@ def build_inference_task_id(benchmark_task_id: str) -> str:
 
 
 def infer_family_id(model: str) -> str | None:
-    """Map GLM model names to QitOS' dedicated GLM harness family."""
+    """Map model names to the QitOS harness families that need run defaults."""
     normalized_model = model.strip().lower()
     if normalized_model.startswith("glm-") or normalized_model.startswith("zai-org/glm-") or normalized_model.startswith("glm5"):
         return "glm"
+    if normalized_model.startswith(("mimo", "xiaomi/mimo")):
+        return "mimo"
+    if normalized_model.startswith(("deepseek", "ds-v4")):
+        return "deepseek"
     return None
 
 
 def default_max_tokens_for_model(model: str) -> int:
     """Return the CyberGym default output budget for a model name."""
-    if infer_family_id(model) == "glm":
+    family = infer_family_id(model)
+    if family == "glm":
         return GLM_DEFAULT_MAX_TOKENS
+    if family in {"mimo", "deepseek"}:
+        return REASONING_DEFAULT_MAX_TOKENS
     return DEFAULT_MAX_TOKENS
+
+
+def default_timeout_for_model(model: str) -> int:
+    """Return the per-request timeout for a model name."""
+    if infer_family_id(model) in {"mimo", "deepseek"}:
+        return REASONING_API_TIMEOUT
+    return DEFAULT_API_TIMEOUT
 
 
 def build_agent(
@@ -99,7 +119,7 @@ def _create_llm(model: str, llm_config: Optional[Dict[str, Any]] = None):
         base_url=base_url,
         temperature=llm_config.get("temperature", 0.7),
         max_tokens=llm_config.get("max_tokens", default_max_tokens_for_model(model)),
-        timeout=llm_config.get("timeout", DEFAULT_API_TIMEOUT),
+        timeout=llm_config.get("timeout", default_timeout_for_model(model)),
         inference_key=llm_config.get("inference_key"),
     )
 

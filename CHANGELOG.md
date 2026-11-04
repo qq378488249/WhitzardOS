@@ -19,6 +19,7 @@ How to update:
 
 ### Added
 
+- Added a `mimo` family preset for Xiaomi MiMo models (`mimo-v2.6-flash`, `mimo-v2.6-pro`) served through OpenAI-compatible endpoints, so `mimo-*` model names resolve instead of raising `Unknown QitOS model family preset`. The preset keeps the multi-action JSON lane the CyberGym agent is tuned on and resolves to a 256k context window; CyberGym runs also give MiMo and DeepSeek reasoning models a 64k output budget and a 30-minute request timeout by default, instead of the 8k/360s coding defaults.
 - Added `CYBERGYM_MASK_MAP` support to CyberGym task preparation so runs against mask-map-enabled verification servers generate masked task ids (and matching checksums) in `submit.sh`, fixing `Invalid task_id` rejections on submission.
 - Added `AgentSpec.tool_name` so delegate workers can expose task-oriented model-facing tool names while keeping the registry agent name stable.
 - Added qita's trajectory analysis workbench with diagnosis-first run pages, derived failure insights, focus navigation, critical-step guidance, an inspector panel, and expandable full-content evidence views for long thoughts, observations, parser diagnostics, actions, and critic outputs.
