@@ -34,6 +34,7 @@ How to update:
 
 ### Fixed
 
+- Fixed the Docker-backed environment health check timing out after 20 seconds on slow Docker daemons (for example while another image build is running), which aborted CyberGym runs with `env_capability_mismatch` before the first step; the timeout is now 60 seconds and configurable via `QITOS_DOCKER_HEALTH_TIMEOUT`.
 - Fixed CyberGym context compaction dropping `tool_call_id` (and tool name/linkage) when snipping old tool messages, which made strict OpenAI-compatible gateways reject the next request with `tool_call_id is not set`.
 - Fixed `DelegateTool` context delivery so the optional tool-call `context` object is passed into the child agent via `Engine.run(..., context=...)`.
 - Fixed CyberGym OpenAI-compatible model routing so each agent run gets a unique sticky inference key instead of relying on process-global routing state.

@@ -20,6 +20,23 @@ def _run(cmd: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
+def _health_check_timeout() -> int:
+    """Timeout (seconds) for the Docker health-check probes.
+
+    Defaults to 60s and can be raised with ``QITOS_DOCKER_HEALTH_TIMEOUT`` on
+    hosts where the Docker daemon is slow to answer ``docker inspect``.
+    """
+    raw = str(os.getenv("QITOS_DOCKER_HEALTH_TIMEOUT") or "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 0
+        if value > 0:
+            return value
+    return 60
+
+
 _MANAGED_CONTAINERS: dict[str, "DockerEnv"] = {}
 _CLEANUP_LOCK = threading.RLock()
 _ATEXIT_INSTALLED = False
@@ -232,7 +249,13 @@ class DockerEnv(HostEnv):
         if not self.container:
             return {"ok": False, "message": "container is empty"}
 
-        inspect = _run(["docker", "inspect", self.container], timeout=20)
+        # A busy Docker daemon can take tens of seconds to answer `inspect`
+        # (e.g. while another image build is running).  The old 20s budget made
+        # preflight fail with env_capability_mismatch on slow hosts.
+        inspect = _run(
+            ["docker", "inspect", self.container],
+            timeout=_health_check_timeout(),
+        )
         if inspect.returncode != 0:
             return {
                 "ok": False,
@@ -241,7 +264,7 @@ class DockerEnv(HostEnv):
                 "stderr": inspect.stderr,
             }
 
-        probe = self.cmd.run("pwd", timeout=10)
+        probe = self.cmd.run("pwd", timeout=30)
         if int(probe.get("returncode", 1)) != 0:
             return {
                 "ok": False,
