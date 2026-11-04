@@ -76,6 +76,28 @@ def make_trace_writer(
     )
 
 
+def resolve_docker_image(task_id: str) -> str:
+    """Resolve the agent image for one task.
+
+    ``CYBERGYM_DOCKER_IMAGE`` normally names a single image, which is enough
+    when one task runs per process. A batch runs many tasks in one process,
+    and every task needs its own base image (its own target binary and
+    glibc), so ``auto`` maps a task to the per-task image
+    ``qitos/task-<series>-<id>:local``; ``{task_id}`` in the value is
+    substituted with the task id.
+    """
+    raw = str(os.getenv("CYBERGYM_DOCKER_IMAGE", "cage/claude-code:cyberdebug")).strip()
+    normalized = str(task_id or "").strip()
+    if raw.lower() == "auto":
+        series, _, subid = normalized.partition(":")
+        if not series or not subid:
+            return raw
+        return f"qitos/task-{series}-{subid}:local"
+    if "{task_id}" in raw:
+        return raw.replace("{task_id}", normalized.replace(":", "-"))
+    return raw
+
+
 def run_cybergym_agent_task(
     *,
     task_dir: str | Path,
@@ -139,7 +161,7 @@ def run_cybergym_agent_task(
         # unchanged, while the agent's bash/read/write tools run in-container.
         from qitos.kit.env.docker_env import DockerEnv
 
-        _img = os.getenv("CYBERGYM_DOCKER_IMAGE", "cage/claude-code:cyberdebug")
+        _img = resolve_docker_image(str(task.inputs.get("task_id") or task.id))
         _net = os.getenv("CYBERGYM_DOCKER_NETWORK", "host").strip() or None
         _host_ws = str(Path(workspace_root).resolve())
         # Dynamic-analysis: stage the prebuilt vulnerable target into the container

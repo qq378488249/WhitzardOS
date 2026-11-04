@@ -196,3 +196,31 @@ class CybergymMaskMapTests(unittest.TestCase):
         ):
             with self.assertRaises(FileNotFoundError):
                 _resolve_mask_map_path()
+
+
+class CybergymDockerImageTests(unittest.TestCase):
+    def test_explicit_image_is_used_as_is(self):
+        with mock.patch.dict("os.environ", {"CYBERGYM_DOCKER_IMAGE": "cage/claude-code:cyberdebug"}):
+            self.assertEqual(
+                cybergym_runner.resolve_docker_image("arvo:1065"),
+                "cage/claude-code:cyberdebug",
+            )
+
+    def test_auto_image_maps_a_task_to_its_own_image(self):
+        with mock.patch.dict("os.environ", {"CYBERGYM_DOCKER_IMAGE": "auto"}):
+            self.assertEqual(
+                cybergym_runner.resolve_docker_image("arvo:1065"),
+                "qitos/task-arvo-1065:local",
+            )
+            self.assertEqual(
+                cybergym_runner.resolve_docker_image("oss-fuzz:42535201"),
+                "qitos/task-oss-fuzz-42535201:local",
+            )
+
+    def test_task_id_template_is_substituted(self):
+        with mock.patch.dict("os.environ", {"CYBERGYM_DOCKER_IMAGE": "local/{task_id}:tag"}):
+            self.assertEqual(
+                cybergym_runner.resolve_docker_image("arvo:1065"),
+                "local/arvo-1065:tag",
+            )
+
