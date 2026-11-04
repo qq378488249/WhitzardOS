@@ -228,16 +228,18 @@ Two more runs were killed the same way (`arvo:65418` after 48 steps and 31
 minutes, `arvo:65530` after 46 steps and 21 minutes, both with 0 submissions),
 which brings the count of truncation casualties to five.
 
-##### The verification database stopped reaching the host file
+##### The verification database lags behind the host file
 
-Since 15:25 local the server's rows no longer land in
-`C:\CodeWork\cybergym\server_poc_cgh\poc.db`: the file keeps its old size and
-hash, and Windows reports a sharing violation on it. The server itself is
-healthy — `/query-poc` returns rows that were created after 15:25, so the
-writes are sitting in an uncommitted transaction. Verification results are
-still correct and the agents still get their feedback, but the rows would be
-lost if the server restarts. Until the batch is done, results are read from
-the server log and the API instead of the database file.
+Since 15:25 local the server's rows stopped showing up in
+`C:\CodeWork\cybergym\server_poc_cgh\poc.db`: the file kept its old size and
+hash, and Windows reported a sharing violation on it. The server itself was
+healthy — `/query-poc` returned rows created after 15:25 — so the writes were
+sitting in a transaction the server had not committed.
+
+Stopping the server committed them: the file grew to 155 rows (max id 162) and
+contains the three `arvo:64849` submissions from 15:28–15:48. Nothing was
+lost, but the file only reflects the server's writes when it closes its
+connection, so results are read from the API while the server is running.
 
 **Cause.** The server asks for WAL (`PRAGMA journal_mode=WAL` in
 `init_engine`), but the file reports `journal_mode=delete` — WAL never took
