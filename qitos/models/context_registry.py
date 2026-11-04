@@ -31,6 +31,17 @@ _PATTERNS: tuple[_ContextPattern, ...] = (
         ),
         window=1_047_576,
     ),
+    # DeepSeek V4 family — 1M context on the wire, but 256k here: the engine
+    # keeps the whole history in memory, and a 1M window with several runs in
+    # parallel exhausts the WSL memory limit (OOM-killed agents).
+    _ContextPattern(
+        prefixes=(
+            "deepseek-v4",
+            "deepseek-v4.1",
+            "deepseek-v4-flash",
+        ),
+        window=262_144,
+    ),
     # gpt-4o family — 128k context
     _ContextPattern(
         prefixes=(
