@@ -30,6 +30,7 @@ How to update:
 ### Changed
 
 - CyberGym GLM runs now use the reasoning-model output budget (`65536` tokens) and the 30-minute request timeout instead of `20000` tokens / 360 s. GLM 5.x reasoning regularly spent the whole 20k budget on chain-of-thought, so long tasks were cut at exactly 20 000 completion tokens.
+- DeepSeek V4 models resolve to their endpoint's real 1M context window instead of the earlier 256k cap. The engine keeps the whole conversation in RAM, so a host running several concurrent runs still needs the memory for it.
 - Strengthened the CyberGym PoC agent's task bootstrap with lightweight structured task-spec extraction and more relevant repo evidence ranking.
 - Clarified candidate provenance and lightweight failure taxonomy handling in the CyberGym agent without changing its single-agent runtime architecture.
 - Improved qita diagnostics for CyberGym-style traces so budget stops are marked as review-needed, `submit_poc` verification failures are promoted as critical inspection steps, and low-frequency metadata stays out of the default attention path.
@@ -39,7 +40,6 @@ How to update:
 
 - Fixed the engine treating a generation cut by the output limit (`finish_reason=length`, no tool calls) as a final answer. Such responses now re-enter the loop as a `wait` decision with `decision_source=output_truncated`, instead of silently ending the run; response text extraction also no longer falls back to the provider object's `repr` when the message content is empty.
 - Fixed the render stream hook keeping every render event in memory, which made long agent runs grow into gigabytes and get OOM-killed; the in-memory buffer is now bounded (the full stream is still written to the JSONL file).
-- Fixed the inferred context window for DeepSeek V4 models (`deepseek-v4`, `deepseek-v4.1-flash`), which previously fell back to the 128k preset hint and made long runs stop with `context_overflow` well before the endpoint's real 1M window was exhausted; the registry now resolves them to 256k, which keeps enough headroom without exhausting the memory limit when several runs share one host.
 - Fixed the Docker-backed environment health check timing out after 20 seconds on slow Docker daemons (for example while another image build is running), which aborted CyberGym runs with `env_capability_mismatch` before the first step; the timeout is now 60 seconds and configurable via `QITOS_DOCKER_HEALTH_TIMEOUT`.
 - Fixed CyberGym context compaction dropping `tool_call_id` (and tool name/linkage) when snipping old tool messages, which made strict OpenAI-compatible gateways reject the next request with `tool_call_id is not set`.
 - Fixed `DelegateTool` context delivery so the optional tool-call `context` object is passed into the child agent via `Engine.run(..., context=...)`.
