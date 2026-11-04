@@ -33,6 +33,7 @@ How to update:
 
 ### Fixed
 
+- Fixed CyberGym context compaction dropping `tool_call_id` (and tool name/linkage) when snipping old tool messages, which made strict OpenAI-compatible gateways reject the next request with `tool_call_id is not set`.
 - Fixed `DelegateTool` context delivery so the optional tool-call `context` object is passed into the child agent via `Engine.run(..., context=...)`.
 - Fixed CyberGym OpenAI-compatible model routing so each agent run gets a unique sticky inference key instead of relying on process-global routing state.
 - Fixed OpenAI-compatible tool schema generation for postponed or string annotations so CyberGym tools no longer emit invalid JSON Schema types.

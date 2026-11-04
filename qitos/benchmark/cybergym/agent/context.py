@@ -140,6 +140,11 @@ class SnipCompactor:
                 role=msg.role,
                 content=compacted,
                 step_id=msg.step_id,
+                # Preserve the tool-call linkage: OpenAI-compatible providers
+                # reject `tool` messages that omit `tool_call_id`.
+                tool_calls=[dict(x) for x in list(msg.tool_calls or [])],
+                tool_call_id=msg.tool_call_id,
+                name=msg.name,
                 metadata={
                     **msg.metadata,
                     "snipped": True,
@@ -221,6 +226,11 @@ class SnipCompactor:
                 role=msg.role,
                 content=compacted,
                 step_id=msg.step_id,
+                # Preserve the tool-call linkage: OpenAI-compatible providers
+                # reject `tool` messages that omit `tool_call_id`.
+                tool_calls=[dict(x) for x in list(msg.tool_calls or [])],
+                tool_call_id=msg.tool_call_id,
+                name=msg.name,
                 metadata={
                     **msg.metadata,
                     "snipped": True,

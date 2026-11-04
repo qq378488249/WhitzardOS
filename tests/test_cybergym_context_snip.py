@@ -43,3 +43,44 @@ def test_snip_compactor_persists_old_tool_results_with_preview(tmp_path: Path) -
 
     assert result[2].content == recent
     assert result[2].metadata.get("snipped") is None
+
+
+def test_snip_preserves_tool_call_linkage(tmp_path: Path) -> None:
+    """Snip and early-read snip must keep tool_call_id on `tool` messages.
+
+    OpenAI-compatible providers (e.g. strict gateways) reject a `tool`
+    message without `tool_call_id`, so compaction must not drop the link
+    to the originating assistant tool call.
+    """
+    state = CyberGymState(task="demo", workspace_root=str(tmp_path))
+    tool_calls = [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "read", "arguments": "{}"},
+        }
+    ]
+    messages = [
+        HistoryMessage(
+            role="tool",
+            content="X" * 600,
+            step_id=1,
+            tool_calls=tool_calls,
+            tool_call_id="call_1",
+            name="read",
+            metadata={"source": "engine"},
+        ),
+        HistoryMessage(role="tool", content="recent output", step_id=2),
+    ]
+
+    snipped = SnipCompactor(keep_recent=1).snip(messages, state=state)
+    assert snipped[0].metadata.get("snipped") is True
+    assert snipped[0].tool_call_id == "call_1"
+    assert snipped[0].name == "read"
+
+    early = SnipCompactor(keep_recent=1).snip_reads_early(
+        messages, keep_recent=0, state=state
+    )
+    assert early[0].metadata.get("snip_reason") == "early_read"
+    assert early[0].tool_call_id == "call_1"
+    assert early[0].name == "read"
