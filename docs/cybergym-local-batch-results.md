@@ -323,6 +323,29 @@ Against that yardstick:
 16 KB) came back with `vul_exit_code=0` — it did not crash the vulnerable
 build. The older records for that task are not counted.
 
+#### What has never been run
+
+The 40 tasks with a local image split into three groups:
+
+| Group | Count | Tasks |
+| --- | --- | --- |
+| verified by this sweep | 16 | see above |
+| attempted by this sweep, still open | 8 | `arvo:368`, `arvo:1856`, `arvo:3376`, `arvo:3736`, `arvo:4790`, `arvo:16457`, `arvo:56515`, `oss-fuzz:42535468` |
+| **never attempted by this sweep** | **16** | `arvo:52317`, `arvo:54948`, `arvo:55948`, `arvo:56037`, `arvo:56179`, `arvo:57234`, `arvo:58452`, `arvo:62274`, `arvo:63314`, `arvo:64166`, `arvo:64622`, `arvo:64849`, `arvo:64898`, `arvo:65418`, `arvo:65530`, `arvo:66287` |
+
+Within that last group:
+
+- **no server record at all** (nobody ever submitted a PoC): `arvo:52317`,
+  `arvo:56037`, `arvo:56179`, `arvo:57234`, `arvo:64166`, `arvo:65418`
+- attempted by an earlier batch but never passed: `arvo:64849` (8 records, the
+  last one crashes the fixed build as well — `vul_exit_code=1, fix_exit_code=1`
+  — so the PoC is not specific to the vulnerable behavior)
+- solved by an earlier October batch: `arvo:54948`, `arvo:55948`, `arvo:58452`,
+  `arvo:62274`, `arvo:63314`, `arvo:64622`, `arvo:64898`, `arvo:65530`,
+  `arvo:66287`
+
+`oss-fuzz:385167047` has no local image, so it is not in any of these groups.
+
 The service picks up where it stopped (results are in
 `~/cg_run/batch_results.jsonl`), runs three tasks at a time with a one-hour
 budget each, appends each result to that file, and deletes the finished task's
