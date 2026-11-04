@@ -86,6 +86,14 @@ rsync -a \
   </Step>
 </Steps>
 
+### 动态分析的几个硬性前提
+
+这些点不报错但会直接让任务失败，排查时优先确认：
+
+- **暂存目录里只能有一个可执行文件**：agent 的二进制发现遇到多个可执行文件会直接 fail-closed（`ambiguous_executable_candidates`）。只保留目标 fuzzer 为可执行，数据文件设为 `644`。
+- **`vm.mmap_rnd_bits` 需为 `28`**：预编译的 fuzz 二进制在更新的默认值下会在启动阶段异常。
+- **运行期文件放在本地 Linux 文件系统**：从 Windows 挂载路径（9p/DrvFs）导入 agent 模块要花几分钟，运行代码、任务数据、暂存二进制、工作区与轨迹都建议放在 ext4 之类的本地文件系统上。
+
 ## 单任务运行
 
 从 QitOS 仓库根目录运行：
@@ -210,6 +218,8 @@ qita 会按这三份标准文件派生运行诊断。对于 CyberGym PoC 轨迹�
 - CyberGym 任务能转成 QitOS `Task`
 - 基准测试族已注册到 `qitos.benchmark`
 - 方案和薄示例能正常调用同一条运行器
-- 真实冒烟测试可以生成任务、初始化 `GLM-5.1-sii`、写出 QitOS 追踪记录
+- 真实冒烟测试可以生成任务、写出 QitOS 追踪记录
+- 端到端跑通：接真实验证服务器，本地最近一轮尝试 10 个任务、通过 8 个（`arvo` 与 `oss-fuzz` 两个系列都有），PoC 体积从 4 字节到 2.7 KB 不等
+- 逐任务结果、失败归因与运行期改动记录在 `docs/internal/cybergym-local-test-report.md`（维护者文档，不发布到本站）
 
-当前已知限制是模型协议还没有完全对齐。`GLM-5.1-sii` 目前更倾向输出 `<tool_call>...` 风格内容，而当前智能体还走 `JsonDecisionParser` 期望纯 JSON，因此在短冒烟测试里会停在解析器错误。这是下一步要处理的协议适配问题，不是 CyberGym 基准测试结构接入问题。
+协议方面，支持原生 tool call 的模型（如 `deepseek-v4.1-flash`）可以直接跑完整流程；纯文本 JSON 决策通道仍作为兜底路径保留。

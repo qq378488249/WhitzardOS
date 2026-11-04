@@ -110,3 +110,28 @@ The integration is covered by targeted tests around:
 - history retention and compaction
 - model retry and timeout defaults
 - runtime prompt/tool-path preservation
+
+End-to-end local runs against a real CyberGym verification server are recorded
+in `docs/internal/cybergym-local-test-report.md`, including the per-task
+outcomes and the runtime prerequisites (mask map, staged binary, agent image).
+
+Latest local run: 10 tasks attempted, 8 passed, 1 failed in preflight, 1 still
+running. The passing set spans both families (`arvo` and `oss-fuzz`), with PoCs
+between 4 bytes and 2.7 KB.
+
+### Operational prerequisites
+
+These bite silently, so check them before blaming the agent:
+
+- **Mask map**: when the server runs with `--mask_map_path`, set
+  `CYBERGYM_MASK_MAP` to the same file. Otherwise every `submit_poc` is
+  rejected with `Invalid task_id`.
+- **One executable in the staged directory**: the agent's binary discovery
+  fails closed (`ambiguous_executable_candidates`) when `/out` holds more than
+  one executable, so keep only the target fuzzer executable and leave data
+  files non-executable.
+- **`vm.mmap_rnd_bits`**: the prebuilt fuzzers need `28` in the container
+  runtime kernel; a newer default breaks them at startup.
+- **Import cost**: importing the agent from a Windows-mounted path (9p/DrvFs)
+  takes minutes. Keep the runtime copy, task data, staged binaries, workspaces,
+  and traces on a local Linux filesystem.
