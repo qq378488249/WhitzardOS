@@ -2,8 +2,10 @@ from types import SimpleNamespace
 
 from qitos import Action, AgentModule, Decision, Engine, ToolRegistry, tool
 from qitos.core.history import History, HistoryMessage
+from qitos.core.model_response import ModelResponse
 from qitos.core.state import StateSchema
 from qitos.engine import RuntimeBudget
+from qitos.engine.states import StepRecord
 from qitos.kit.parser import ReActTextParser
 
 
@@ -111,6 +113,96 @@ def test_extract_response_text_uses_reasoning_content_when_content_is_empty():
     text = runtime._extract_response_text(raw)
 
     assert text == "Conclusion: the checksum logic is the trigger. Next: write a candidate."
+
+
+def test_extract_response_text_does_not_fall_back_to_provider_repr():
+    engine = Engine(agent=_ToolCallAgent(llm=None), budget=RuntimeBudget(max_steps=1))
+    runtime = engine._model_runtime
+    raw = SimpleNamespace(
+        message=SimpleNamespace(
+            content=None,
+            reasoning="long chain of thought cut at the output limit",
+            tool_calls=None,
+        ),
+        finish_reason="length",
+    )
+
+    assert runtime._extract_response_text(raw) == ""
+
+
+def test_truncated_generation_is_not_treated_as_final():
+    engine = Engine(agent=_ToolCallAgent(llm=None), budget=RuntimeBudget(max_steps=1))
+    runtime = engine._model_runtime
+
+    # content=None, tool_calls=None, finish_reason='length': the provider ran
+    # out of output budget, so this must not end the run as a final answer.
+    record = StepRecord(step_id=0)
+    decision = runtime.normalize_decision(
+        ModelResponse(text="", finish_reason="length", tool_calls=None),
+        step=0,
+        record=record,
+    )
+
+    assert decision.mode == "wait"
+    assert decision.meta["truncated"] is True
+    assert record.decision_source == "output_truncated"
+
+    # Reasoning may already have leaked into text; the length stop still wins.
+    record = StepRecord(step_id=1)
+    decision = runtime.normalize_decision(
+        ModelResponse(text="still thinking...", finish_reason="length", tool_calls=None),
+        step=1,
+        record=record,
+    )
+
+    assert decision.mode == "wait"
+    assert record.decision_source == "output_truncated"
+
+
+def test_truncated_step_continues_to_the_next_model_call():
+    class _ModelOnlyAgent(_ToolCallAgent):
+        def decide(self, state: _State, observation: dict):
+            _ = state, observation
+            return None
+
+    class _TruncateThenActModel:
+        model = "demo-model"
+        qitos_harness_metadata = {
+            "tool_policy": {"native_tool_call_preferred": True}
+        }
+
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, messages):
+            _ = messages
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    message=SimpleNamespace(content=None, tool_calls=None),
+                    finish_reason="length",
+                )
+            return SimpleNamespace(
+                message=SimpleNamespace(
+                    content=None,
+                    tool_calls=[
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "add", "arguments": '{"a": 20, "b": 22}'},
+                        }
+                    ],
+                ),
+                finish_reason="tool_calls",
+            )
+
+    llm = _TruncateThenActModel()
+    agent = _ModelOnlyAgent(llm=llm)
+    Engine(agent=agent, budget=RuntimeBudget(max_steps=2)).run("compute")
+
+    # The truncated first step must not end the run: the loop re-enters
+    # DECIDE and the second model call gets to act.
+    assert llm.calls == 2
 
 
 def test_native_tool_call_history_keeps_assistant_text_and_tool_calls():

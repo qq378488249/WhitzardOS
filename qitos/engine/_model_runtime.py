@@ -980,6 +980,36 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         )
         if native_decision is not None:
             return native_decision
+
+        # A generation cut at the output limit is not a final answer. GLM and
+        # other reasoning models can spend the whole budget on reasoning and
+        # return content=None / tool_calls=None with finish_reason="length";
+        # treating that as final ends the run silently with no action taken.
+        if self._is_truncated_response(response):
+            assert response is not None
+            if record is not None:
+                record.decision_source = "output_truncated"
+            self.engine._emit(
+                step,
+                RuntimePhase.DECIDE,
+                payload={
+                    "stage": "output_truncated",
+                    "finish_reason": response.finish_reason,
+                    "usage": response.usage,
+                },
+            )
+            return Decision.wait(
+                rationale=(
+                    "Model output hit the max_tokens limit before emitting a "
+                    "tool call; continuing instead of treating the truncated "
+                    "generation as a final answer."
+                ),
+                meta={
+                    "truncated": True,
+                    "finish_reason": response.finish_reason,
+                },
+            )
+
         parser_input = response.text if response is not None else raw_decision
 
         # When native tool calling is preferred and the model returned plain
@@ -1029,6 +1059,14 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         raise ValueError(
             "Agent.decide must return Decision when no parser is configured"
         )
+
+    @staticmethod
+    def _is_truncated_response(response: ModelResponse | None) -> bool:
+        if response is None:
+            return False
+        if str(response.finish_reason or "").strip().lower() != "length":
+            return False
+        return not (isinstance(response.tool_calls, list) and response.tool_calls)
 
     def _parse_with_protocol_chain(
         self,
@@ -1489,6 +1527,11 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             message = raw_output.get("message")
             if isinstance(message, dict):
                 return self._extract_response_text(message)
+            if any(
+                key in raw_output
+                for key in ("content", "tool_calls", "reasoning_content", "text")
+            ):
+                return ""
             return str(raw_output)
         choices = getattr(raw_output, "choices", None)
         if isinstance(choices, list) and choices:
@@ -1518,6 +1561,11 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             text = getattr(message, "text", None)
             if isinstance(text, str):
                 return text
+            if any(
+                hasattr(message, key)
+                for key in ("content", "tool_calls", "reasoning_content", "text")
+            ):
+                return ""
         for key in ("text", "content", "output_text"):
             value = getattr(raw_output, key, None)
             if isinstance(value, str):

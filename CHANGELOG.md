@@ -36,6 +36,7 @@ How to update:
 
 ### Fixed
 
+- Fixed the engine treating a generation cut by the output limit (`finish_reason=length`, no tool calls) as a final answer. Such responses now re-enter the loop as a `wait` decision with `decision_source=output_truncated`, instead of silently ending the run; response text extraction also no longer falls back to the provider object's `repr` when the message content is empty.
 - Fixed the render stream hook keeping every render event in memory, which made long agent runs grow into gigabytes and get OOM-killed; the in-memory buffer is now bounded (the full stream is still written to the JSONL file).
 - Fixed the inferred context window for DeepSeek V4 models (`deepseek-v4`, `deepseek-v4.1-flash`), which previously fell back to the 128k preset hint and made long runs stop with `context_overflow` well before the endpoint's real 1M window was exhausted; the registry now resolves them to 256k, which keeps enough headroom without exhausting the memory limit when several runs share one host.
 - Fixed the Docker-backed environment health check timing out after 20 seconds on slow Docker daemons (for example while another image build is running), which aborted CyberGym runs with `env_capability_mismatch` before the first step; the timeout is now 60 seconds and configurable via `QITOS_DOCKER_HEALTH_TIMEOUT`.
