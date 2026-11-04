@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from collections import deque
+from typing import Any, Deque, Dict, List, Optional, TYPE_CHECKING
 
 from rich.console import Console, Group
 from rich.padding import Padding
@@ -124,8 +125,13 @@ _PHASE_COLORS: Dict[str, str] = {
 class RenderStreamHook(RenderHook):
     """Emit normalized render events for terminal and frontend consumers."""
 
+    #: How many events stay in memory for inspection.  Events are also written
+    #: to ``output_jsonl``; keeping every event of a long run in memory made
+    #: the agent process grow into gigabytes (OOM-killed on a 8 GB WSL VM).
+    MAX_BUFFERED_EVENTS = 512
+
     def __init__(self, output_jsonl: Optional[str] = None):
-        self.events: List[RenderEvent] = []
+        self.events: Deque[RenderEvent] = deque(maxlen=self.MAX_BUFFERED_EVENTS)
         self.output_jsonl = output_jsonl
         self._path = Path(output_jsonl) if output_jsonl else None
         if self._path is not None:
