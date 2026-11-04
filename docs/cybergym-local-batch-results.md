@@ -239,6 +239,33 @@ still correct and the agents still get their feedback, but the rows would be
 lost if the server restarts. Until the batch is done, results are read from
 the server log and the API instead of the database file.
 
+**Cause.** The server asks for WAL (`PRAGMA journal_mode=WAL` in
+`init_engine`), but the file reports `journal_mode=delete` — WAL never took
+effect. WAL needs a shared-memory `-shm` file, which the Docker Desktop
+host-mount layer does not support, so SQLite silently keeps the rollback
+journal. Every commit then has to create, write and delete `poc.db-journal`
+and take an EXCLUSIVE lock on the database file, on a share whose locking
+does not behave; the commit stalls, the server keeps an open write
+transaction, and every other connection either fails with "unable to open
+database file" or sees the stale bytes.
+
+Evidence:
+
+- plain files still cross the mount (a probe file written from the container
+  appeared on Windows immediately, and every PoC artifact directory —
+  `poc.bin`, `output.vul`, `output.fix` — is present on the Windows side,
+  including the one from 15:48);
+- `poc.db` itself is frozen: same size, same md5, same mtime (15:25:53);
+- the server's own connection can read rows created after 15:25, so they are
+  in its transaction rather than on disk;
+- other connections fail (`unable to open database file` from inside the
+  container, `ERROR_SHARING_VIOLATION` from Windows).
+
+Consequences and remedy: the PoC artifacts survive, so no evidence is lost
+even if the rows do; the durable fix is to put the database on a filesystem
+that supports WAL (a container-local path or a Linux-side bind mount) instead
+of the Windows share, and to copy the results out afterwards.
+
 #### `arvo:15120` — passed, graded after the fix-side gap was closed
 
 | Field | Value |
