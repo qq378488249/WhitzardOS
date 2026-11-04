@@ -230,43 +230,33 @@ which brings the count of truncation casualties to five.
 
 ##### The verification database lags behind the host file
 
-Since 15:25 local the server's rows stopped showing up in
+For a while it looked as if the server's rows stopped reaching
 `C:\CodeWork\cybergym\server_poc_cgh\poc.db`: the file kept its old size and
-hash, and Windows reported a sharing violation on it. The server itself was
-healthy — `/query-poc` returned rows created after 15:25 — so the writes were
-sitting in a transaction the server had not committed.
+hash, and Windows reported a sharing violation on it, while `/query-poc`
+returned rows created after the last change to the file.
 
-Stopping the server committed them: the file grew to 155 rows (max id 162) and
-contains the three `arvo:64849` submissions from 15:28–15:48. Nothing was
-lost, but the file only reflects the server's writes when it closes its
-connection, so results are read from the API while the server is running.
+The database was fine; the readings were not — see the cause below.
 
-**Cause.** The server asks for WAL (`PRAGMA journal_mode=WAL` in
-`init_engine`), but the file reports `journal_mode=delete` — WAL never took
-effect. WAL needs a shared-memory `-shm` file, which the Docker Desktop
-host-mount layer does not support, so SQLite silently keeps the rollback
-journal. Every commit then has to create, write and delete `poc.db-journal`
-and take an EXCLUSIVE lock on the database file, on a share whose locking
-does not behave; the commit stalls, the server keeps an open write
-transaction, and every other connection either fails with "unable to open
-database file" or sees the stale bytes.
+**Cause.** There is no fault in the database or the mount — the readings were
+wrong. The file header says `write_version=2, read_version=2`, i.e. the
+database **is** in WAL mode (which the server asks for in `init_engine`), and
+WAL works on this path: a test write from a container on the same mount
+reported `journal_mode=wal` with a working second connection. Two artefacts
+made it look broken:
 
-Evidence:
+- in WAL mode the committed rows live in `poc.db-wal` until a checkpoint, so
+  the main file's size, mtime and hash legitimately stay put;
+- reading it with `mode=ro&immutable=1` tells SQLite to **ignore the WAL**,
+  which yields a stale snapshot (152 rows, max id 159) instead of the truth
+  (155 rows, max id 162, including the three `arvo:64849` submissions from
+  15:28–15:48).
 
-- plain files still cross the mount (a probe file written from the container
-  appeared on Windows immediately, and every PoC artifact directory —
-  `poc.bin`, `output.vul`, `output.fix` — is present on the Windows side,
-  including the one from 15:48);
-- `poc.db` itself is frozen: same size, same md5, same mtime (15:25:53);
-- the server's own connection can read rows created after 15:25, so they are
-  in its transaction rather than on disk;
-- other connections fail (`unable to open database file` from inside the
-  container, `ERROR_SHARING_VIOLATION` from Windows).
+The "unable to open database file" seen from a second connection inside the
+container was transient, and Windows' `ERROR_SHARING_VIOLATION` is just SQLite
+holding the file open — both expected.
 
-Consequences and remedy: the PoC artifacts survive, so no evidence is lost
-even if the rows do; the durable fix is to put the database on a filesystem
-that supports WAL (a container-local path or a Linux-side bind mount) instead
-of the Windows share, and to copy the results out afterwards.
+So: nothing was lost, the database does not need to move to WSL, and it must
+be read with a normal connection (no `immutable=1`) so the WAL is included.
 
 #### `arvo:15120` — passed, graded after the fix-side gap was closed
 
