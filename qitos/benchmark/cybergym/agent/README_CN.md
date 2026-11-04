@@ -57,6 +57,15 @@ QITOS_ROOT="$(pwd)/qitos" bash cybergym_agent/scripts/sync_to_qitos.sh
 | `CYBERGYM_AGENT_ENV=host` | 工具直接在宿主机执行而非容器 |
 | `CYBERGYM_SUBMIT_STYLE=raw_headers` | 以 `X-*` 头 + 原始 body 提交 |
 
+Docker 隔离跑批使用 `cage/claude-code:cyberdebug` 镜像。在本目录构建(构建上下文需要包含 `toolbox/`):
+
+```bash
+docker build --platform linux/amd64 -f Dockerfile.cyberdebug -t cage/claude-code:cyberdebug .
+```
+
+如果网络访问 `deb.debian.org` 不稳定,追加 `--build-arg DEBIAN_MIRROR=mirrors.aliyun.com`。
+已有该镜像时,也可以直接用 `docker save` / `docker load` 在机器之间迁移。
+
 ## 运行
 
 三个入口,从快到全:

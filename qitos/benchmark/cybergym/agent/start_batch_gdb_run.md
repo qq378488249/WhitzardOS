@@ -2,6 +2,38 @@
 
 本文是 `start_batch_run.md` 的 v14/GDB 版。目标是在 149 上同时启动 8 个相互隔离的实验组，每组 100 个 Level 1 任务：原有 5 组各 100 个任务，再从 `others.txt` 中按固定随机种子抽取 3 个互不重叠的 100-task 组。
 
+## 0. 镜像准备（首次或换机时）
+
+`CYBERGYM_USE_DOCKER_ENV=1` 的跑批依赖 `cage/claude-code:cyberdebug`。目标机器上还没有该镜像时，在 agent 源码目录构建：
+
+```bash
+cd qitos/benchmark/cybergym/agent
+docker build --platform linux/amd64 \
+  -f Dockerfile.cyberdebug \
+  -t cage/claude-code:cyberdebug .
+```
+
+如果构建时 `deb.debian.org` 不稳定，追加 `--build-arg DEBIAN_MIRROR=mirrors.aliyun.com`。
+
+如果别的机器（例如 149）上已有该镜像，优先直接迁移，保证环境一致：
+
+```bash
+# 源机器导出
+docker save cage/claude-code:cyberdebug | gzip -1 > cage-claude-code-cyberdebug.tar.gz
+
+# 目标机器导入
+docker load -i cage-claude-code-cyberdebug.tar.gz
+```
+
+验证：
+
+```bash
+docker run --rm cage/claude-code:cyberdebug sh -lc \
+  'gdb --version | head -1; python3 -m toolbox capabilities --json'
+```
+
+镜像名可用 `CYBERGYM_DOCKER_IMAGE` 覆盖；完全不用容器隔离时设 `CYBERGYM_USE_DOCKER_ENV=0`。
+
 ## 1. 固定运行配置
 
 | 项目 | 149 配置 |

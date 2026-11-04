@@ -61,6 +61,17 @@ Environment for a real run (the launch scripts wire these for you):
 | `CYBERGYM_AGENT_ENV=host` | run tools directly on the host instead of a container |
 | `CYBERGYM_SUBMIT_STYLE=raw_headers` | submit via `X-*` headers + raw body |
 
+Docker-isolated runs use the `cage/claude-code:cyberdebug` image. Build it from this
+directory so the build context includes `toolbox/`:
+
+```bash
+docker build --platform linux/amd64 -f Dockerfile.cyberdebug -t cage/claude-code:cyberdebug .
+```
+
+If `deb.debian.org` is unreliable on your network, add
+`--build-arg DEBIAN_MIRROR=mirrors.aliyun.com`. To move an existing image between
+machines instead, use `docker save` / `docker load`.
+
 ## Running
 
 Three entry points, from quick to full:

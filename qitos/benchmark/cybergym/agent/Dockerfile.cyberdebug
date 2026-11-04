@@ -1,0 +1,59 @@
+# CyberGym agent container image.
+#
+# Build from the agent source root so the build context contains toolbox/:
+#   docker build --platform linux/amd64 -f Dockerfile.cyberdebug \
+#     -t cage/claude-code:cyberdebug .
+#
+# On networks where deb.debian.org is unreliable, pick a mirror:
+#   docker build --platform linux/amd64 -f Dockerfile.cyberdebug \
+#     --build-arg DEBIAN_MIRROR=mirrors.aliyun.com \
+#     -t cage/claude-code:cyberdebug .
+#
+# qitos.benchmark.cybergym.runner uses this image when CYBERGYM_USE_DOCKER_ENV=1;
+# override the name with CYBERGYM_DOCKER_IMAGE.
+
+FROM debian:bookworm-slim
+
+ARG DEBIAN_MIRROR=deb.debian.org
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN if [ "$DEBIAN_MIRROR" != "deb.debian.org" ]; then \
+        sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        gdb \
+        binutils \
+        file \
+        xxd \
+        bsdextrautils \
+        python3 \
+        python3-pip \
+        build-essential \
+        cmake \
+        make \
+        autoconf \
+        automake \
+        libtool \
+        pkg-config \
+        ninja-build \
+        gcc-multilib \
+        libc6-dev-i386 \
+        libasan8 \
+        libubsan1 \
+        libc6-dbg \
+        strace \
+        ltrace \
+        valgrind \
+        git \
+        curl \
+        ca-certificates \
+        less \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make `python3 -m toolbox` (used by the agent prompts) work in-container.
+COPY toolbox /opt/cybergym_agent/toolbox
+ENV PYTHONPATH=/opt/cybergym_agent
+
+WORKDIR /workspace

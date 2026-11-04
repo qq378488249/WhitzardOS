@@ -24,6 +24,7 @@ QitOS core is the small framework. Product-grade applications and showcase agent
 - **Cleaner delegate tools**: `AgentSpec.tool_name` lets multi-agent systems expose task-oriented tool names, and `DelegateTool` now delivers structured `context` payloads into child agents.
 - **CyberGym integration hardening**: v0.6 integration runs now preserve valid OpenAI-compatible tool schemas, redact persisted secrets across traces/results/render artifacts, and keep CyberGym PoC-generation shell commands out of the interactive review path while preserving the default coding-tool guard.
 - **Lighter-weight CyberGym bootstrap guidance**: the CyberGym PoC agent now derives a compact task-spec summary, ranks likely parser/harness/sample paths more aggressively, tracks richer candidate provenance, and records a lightweight internal failure taxonomy without changing the single-agent runtime.
+- **Reproducible CyberGym container**: `Dockerfile.cyberdebug` now builds the `cage/claude-code:cyberdebug` image used by Docker-isolated CyberGym runs, with gdb, sanitizer runtimes, a build toolchain, and the in-container `toolbox` CLI.
 
 ## What's New in v0.5.0
 
