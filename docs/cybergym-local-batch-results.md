@@ -217,10 +217,27 @@ The engine treats "text present, no tool call" as a final answer
 discarded, and no PoC was ever submitted (`arvo:56179` after 17 steps,
 `arvo:63314` after 11, `arvo:52317` after 108).
 
-The 20 000-token ceiling comes from our own default for the GLM family
-(`GLM_DEFAULT_MAX_TOKENS`), which the `glm-5.3-flash` runs used; the
-reasoning families get 65 536. A truncated generation should be a recoverable
-step, not the end of the run.
+The 20 000-token ceiling is the same number in every case, but it is not only
+our own GLM default: `arvo:52317` ran on `deepseek-v4.1-flash`, which requests
+65 536, and still stopped at exactly 20 000 while other steps of the same run
+reached 19 096. Other runs have produced 21 369 and 27 658 completion tokens,
+so the gateway does not enforce 20 000 for every request. What exactly causes
+the cap is still open.
+
+Two more runs were killed the same way (`arvo:65418` after 48 steps and 31
+minutes, `arvo:65530` after 46 steps and 21 minutes, both with 0 submissions),
+which brings the count of truncation casualties to five.
+
+##### The verification database stopped reaching the host file
+
+Since 15:25 local the server's rows no longer land in
+`C:\CodeWork\cybergym\server_poc_cgh\poc.db`: the file keeps its old size and
+hash, and Windows reports a sharing violation on it. The server itself is
+healthy — `/query-poc` returns rows that were created after 15:25, so the
+writes are sitting in an uncommitted transaction. Verification results are
+still correct and the agents still get their feedback, but the rows would be
+lost if the server restarts. Until the batch is done, results are read from
+the server log and the API instead of the database file.
 
 #### `arvo:15120` — passed, graded after the fix-side gap was closed
 
