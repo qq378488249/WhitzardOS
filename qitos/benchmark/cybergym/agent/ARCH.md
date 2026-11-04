@@ -32,7 +32,7 @@ Implemented now:
 - feedback memory with `poc_path`, hot feedback, and raw verifier artifacts
 - one-shot reminders for narrow loop correction and candidate pressure
 - progressive context retention with external raw evidence pointers
-- GLM-family default `max_tokens=20000`
+- GLM-family default `max_tokens=65536` (reasoning budget)
 - **READ line numbers**: `cat -n`-style line numbering in all READ output
 - **Crash details in verification**: crash location, ASAN stack frame summary
   shown in verification observation lines and state block
@@ -157,7 +157,8 @@ semantics.
 
 - Builds the model harness and `CyberGymAgent`.
 - Maps GLM model names to the OpenAI-compatible QitOS model family.
-- Uses `20000` default output tokens for GLM family models.
+- Uses `65536` default output tokens (the reasoning budget) and a 1800 s
+  request timeout for GLM family models.
 - Is the construction boundary between QitOS runtime settings and agent policy.
 
 `agent.py`

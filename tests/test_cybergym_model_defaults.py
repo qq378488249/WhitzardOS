@@ -33,4 +33,14 @@ def test_reasoning_models_get_a_large_output_budget() -> None:
 def test_reasoning_models_get_a_longer_request_timeout() -> None:
     assert default_timeout_for_model("mimo-v2.6-flash") == REASONING_API_TIMEOUT
     assert default_timeout_for_model("deepseek-v4.1-flash") == REASONING_API_TIMEOUT
+    assert default_timeout_for_model("glm-5.3-flash") == REASONING_API_TIMEOUT
     assert default_timeout_for_model("claude-sonnet-4-6") == DEFAULT_API_TIMEOUT
+
+
+def test_glm_uses_the_reasoning_output_budget() -> None:
+    # GLM spends output tokens on reasoning before emitting a tool call; the
+    # old 20k budget cut long generations at exactly 20 000 tokens
+    # (finish_reason='length'), so it now shares the reasoning budget.
+    assert GLM_DEFAULT_MAX_TOKENS == REASONING_DEFAULT_MAX_TOKENS == 65536
+    assert default_max_tokens_for_model("glm-5.3-flash") == 65536
+    assert default_max_tokens_for_model("glm-4.6") == 65536

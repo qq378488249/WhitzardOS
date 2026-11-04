@@ -29,6 +29,7 @@ How to update:
 
 ### Changed
 
+- CyberGym GLM runs now use the reasoning-model output budget (`65536` tokens) and the 30-minute request timeout instead of `20000` tokens / 360 s. GLM 5.x reasoning regularly spent the whole 20k budget on chain-of-thought, so long tasks were cut at exactly 20 000 completion tokens.
 - Strengthened the CyberGym PoC agent's task bootstrap with lightweight structured task-spec extraction and more relevant repo evidence ranking.
 - Clarified candidate provenance and lightweight failure taxonomy handling in the CyberGym agent without changing its single-agent runtime architecture.
 - Improved qita diagnostics for CyberGym-style traces so budget stops are marked as review-needed, `submit_poc` verification failures are promoted as critical inspection steps, and low-frequency metadata stays out of the default attention path.

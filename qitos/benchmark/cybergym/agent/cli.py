@@ -12,11 +12,13 @@ from typing import Any, Dict, Optional
 
 
 DEFAULT_MAX_TOKENS = 8192
-GLM_DEFAULT_MAX_TOKENS = 20000
 # Reasoning models spend output budget on reasoning before emitting the
-# answer/tool call; the 8k default truncates them mid-thought.
+# answer/tool call; the 8k default truncates them mid-thought. GLM is a
+# reasoning family too: its old 20k budget was still exhausted by reasoning
+# on hard tasks, so it shares the reasoning budget.
 REASONING_DEFAULT_MAX_TOKENS = 65536
-DEFAULT_API_TIMEOUT = 360  # standard benchmark timeout: GLM responses can be long (max_tokens 20000); a short timeout cuts legit generations
+GLM_DEFAULT_MAX_TOKENS = REASONING_DEFAULT_MAX_TOKENS
+DEFAULT_API_TIMEOUT = 360
 # Reasoning generations routinely exceed the standard timeout, and an aborted
 # request restarts generation from scratch on retry.
 REASONING_API_TIMEOUT = 1800
@@ -54,7 +56,7 @@ def default_max_tokens_for_model(model: str) -> int:
 
 def default_timeout_for_model(model: str) -> int:
     """Return the per-request timeout for a model name."""
-    if infer_family_id(model) in {"mimo", "deepseek"}:
+    if infer_family_id(model) in {"glm", "mimo", "deepseek"}:
         return REASONING_API_TIMEOUT
     return DEFAULT_API_TIMEOUT
 
