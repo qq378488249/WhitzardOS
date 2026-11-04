@@ -204,6 +204,24 @@ Running when this section was written: `arvo:64849` (82 steps), `arvo:65418`
 
 The sweep total is now **21 verified**.
 
+##### Why three runs ended early with `stop=final`
+
+Three of the failures stopped in 8–50 minutes instead of using their hour, and
+all three have the same signature: the last generation returned exactly
+**20 000 completion tokens** and the assistant message carried no tool call
+and no usable text — its content was the provider's raw response object
+(`Choice(finish_reason='length', ...)`).
+
+The engine treats "text present, no tool call" as a final answer
+(`decision_source=native_text_final`), so the run ended, the analysis was
+discarded, and no PoC was ever submitted (`arvo:56179` after 17 steps,
+`arvo:63314` after 11, `arvo:52317` after 108).
+
+The 20 000-token ceiling comes from our own default for the GLM family
+(`GLM_DEFAULT_MAX_TOKENS`), which the `glm-5.3-flash` runs used; the
+reasoning families get 65 536. A truncated generation should be a recoverable
+step, not the end of the run.
+
 #### `arvo:15120` — passed, graded after the fix-side gap was closed
 
 | Field | Value |
