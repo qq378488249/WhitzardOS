@@ -1,0 +1,26 @@
+# Build context for deploy/cybergym/Dockerfile.runner (repository root).
+.git
+.gitignore
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+.venv
+venv
+build
+dist
+*.egg-info
+runs
+out
+wandb
+site
+docs
+tests
+examples
+templates
+qitos_zoo
+qitos/benchmark/cybergym/agent/.claude
+qitos/benchmark/cybergym/agent/docs
+qitos/benchmark/cybergym/agent/tests
+qitos/benchmark/cybergym/agent/vnext
+qitos/benchmark/cybergym/agent/vnext_*

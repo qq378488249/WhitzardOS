@@ -1,0 +1,66 @@
+# CyberGym batch runner (single service).
+#
+# The verification server is NOT managed here. Start it wherever you already
+# run it and point SERVER_URL at it in deploy/cybergym/.env.
+#
+# Usage (from the repository root; from deploy/ drop the deploy/ prefix):
+#   docker load -i deploy/images/cage-claude-code-cyberdebug.tar.gz
+#   docker load -i deploy/images/qitos-cybergym-runner-local.tar.gz
+#   cp deploy/cybergym/.env.example deploy/cybergym/.env
+#   $EDITOR deploy/cybergym/.env
+#   bash deploy/cybergym/compose-preflight.sh
+#   docker compose --env-file deploy/cybergym/.env \
+#     -f deploy/cybergym/compose.yaml up -d
+#
+# To build the runner from source instead, add:
+#   -f deploy/cybergym/compose.build.yaml
+#
+# The batch container is a *control* container. It launches one agent container
+# per task on the HOST daemon, so:
+#   - /var/run/docker.sock is mounted into it;
+#   - RUN_ROOT, CYBERGYM_ROOT, and BINARY_DIR are mounted at the SAME absolute
+#     path inside and outside the container, because the engine passes those
+#     host paths to `docker run -v` for the per-task containers.
+
+name: qitos-cybergym-batch
+
+services:
+  cybergym-batch:
+    image: qitos-cybergym-runner:local
+    env_file:
+      - .env
+    # These override .env on purpose: the same values drive both the bind
+    # mounts below and the paths the launcher sees, so they cannot drift.
+    environment:
+      # Image-internal paths are fixed: the container never uses host virtualenv
+      # or host source paths for these.
+      WORKSPACE_ROOT: /opt/qitos-bench
+      AGENT_ROOT: /opt/qitos-bench/cybergym_agent
+      QITOS_ROOT: /opt/qitos-bench/qitos
+      PYTHON_BIN: /usr/local/bin/python
+      # Host paths, injected from .env so mounts and launcher paths agree.
+      RUN_ROOT: ${RUN_ROOT:?set RUN_ROOT in deploy/cybergym/.env}
+      CYBERGYM_ROOT: ${CYBERGYM_ROOT:-/opt/cybergym}
+      DATA_DIR: ${DATA_DIR:?set DATA_DIR in deploy/cybergym/.env}
+      BINARY_DIR: ${BINARY_DIR:-/opt/cybergym-bin/cybergym-server-data}
+      SERVER_URL: ${SERVER_URL:?set SERVER_URL in deploy/cybergym/.env}
+    init: true
+    # Lets the batch reach a verification server running on this host as
+    # host.docker.internal. The server must listen on 0.0.0.0 or an interface
+    # reachable from the bridge, not only 127.0.0.1.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${RUN_ROOT:?set RUN_ROOT in deploy/cybergym/.env}:${RUN_ROOT}
+      - ${CYBERGYM_ROOT:-/opt/cybergym}:${CYBERGYM_ROOT:-/opt/cybergym}
+      - ${DATA_DIR:?set DATA_DIR in deploy/cybergym/.env}:${DATA_DIR}:ro
+      - ${BINARY_DIR:-/opt/cybergym-bin/cybergym-server-data}:${BINARY_DIR:-/opt/cybergym-bin/cybergym-server-data}:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    # The runner has no checkpoint: a restart re-runs the in-flight task from
+    # step 0, while --resume skips tasks already in OUTPUT_JSONL.
+    restart: "on-failure:3"
+    stop_grace_period: 3m
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "3"

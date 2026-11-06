@@ -5,6 +5,10 @@ description: "使用 `qitos.benchmark.cybergym`、外部同步的 `cybergym_agen
 
 CyberGym 是一个面向漏洞触发与 PoC 生成的安全基准测试。任务通常会提供漏洞版本代码、描述信息和一个 `submit.sh`，智能体需要构造输入，让有漏洞版本触发异常，并最终通过已修复版本验证。
 
+<Tip>
+需要在专用服务器上长时间跑批？参见[在服务器上部署 CyberGym 跑批](/zh/guides/cybergym-server-deployment)，包含 systemd 单元、Docker 镜像准备、打分 key 与资源估算。
+</Tip>
+
 这次集成把 CyberGym 放进了 QitOS 的正式基准测试结构里：
 
 - `qitos.benchmark.cybergym`

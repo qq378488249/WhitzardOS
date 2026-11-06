@@ -90,7 +90,8 @@
                   "guides/observability",
                   "guides/wandb-integration",
                   "guides/mlflow-integration",
-                  "guides/snowl-integration"
+                  "guides/snowl-integration",
+                  "guides/cybergym-server-deployment"
                 ]
               },
               {
@@ -101,7 +102,8 @@
                   "benchmarks/osworld",
                   "benchmarks/gaia",
                   "benchmarks/tau-bench",
-                  "benchmarks/cybench"
+                  "benchmarks/cybench",
+                  "benchmarks/cybergym"
                 ]
               },
               {
@@ -216,7 +218,8 @@
                   "zh/guides/observability",
                   "zh/guides/wandb-integration",
                   "zh/guides/snowl-integration",
-                  "zh/guides/multi-agent-patterns"
+                  "zh/guides/multi-agent-patterns",
+                  "zh/guides/cybergym-server-deployment"
                 ]
               },
               {

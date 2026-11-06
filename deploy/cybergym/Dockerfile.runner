@@ -1,0 +1,73 @@
+# Runner image for CyberGym batch deployments.
+#
+# It packages QitOS, the bundled agent, and the Docker CLI. It is a *control*
+# container: the engine still launches one agent container per task through the
+# host Docker daemon, so the socket must be mounted at run time and the run
+# directory must be visible at the same absolute path inside and outside the
+# container (see compose.yaml).
+#
+# Build from the repository root:
+#   docker build -f deploy/cybergym/Dockerfile.runner -t qitos-cybergym-runner:local .
+
+# Base image for the Docker CLI stage. Override with --build-arg for a pinned
+# version or an internal mirror, e.g. DOCKER_CLI_IMAGE=docker.1ms.run/docker:27-cli.
+ARG DOCKER_CLI_IMAGE=docker:27-cli
+ARG PYTHON_BASE_IMAGE=python:3.12-slim-bookworm
+
+FROM ${DOCKER_CLI_IMAGE} AS dockercli
+FROM ${PYTHON_BASE_IMAGE}
+
+ARG DEBIAN_MIRROR=deb.debian.org
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN if [ "$DEBIAN_MIRROR" != "deb.debian.org" ]; then \
+        sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        rsync \
+        sqlite3 \
+        libasan8 \
+        libubsan1 \
+        libc6-i386 \
+        lib32asan8 \
+        lib32ubsan1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# The engine shells out to `docker run` for per-task containers.
+COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
+
+# Repo root, matching QITOS_ROOT in the launcher.
+WORKDIR /opt/qitos-bench/qitos
+COPY pyproject.toml setup.py MANIFEST.in README.md LICENSE ./
+COPY qitos ./qitos
+COPY scripts ./scripts
+
+RUN pip install -e ".[models]"
+
+# The bundled agent doubles as AGENT_ROOT. The launcher re-syncs it into
+# qitos/benchmark/cybergym/agent on every start, so that destination must stay
+# writable for whatever uid the container runs as.
+WORKDIR /opt/qitos-bench
+COPY qitos/benchmark/cybergym/agent ./cybergym_agent
+# A Windows checkout can hand the build CRLF shell scripts, whose shebangs then
+# fail with `env: 'bash\r'`. Normalize every script in the image.
+RUN find /opt/qitos-bench -name '*.sh' -exec sed -i 's/\r$//' {} + \
+    && chmod -R a+rwX /opt/qitos-bench/qitos/qitos/benchmark/cybergym/agent
+
+COPY deploy/cybergym/docker-entrypoint.sh /usr/local/bin/qitos-cybergym-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/qitos-cybergym-entrypoint \
+    && chmod +x /usr/local/bin/qitos-cybergym-entrypoint
+
+# Stay at the repo root so `import qitos` resolves to the package, not to the
+# repository's top-level __init__.py through the parent directory.
+WORKDIR /opt/qitos-bench/qitos
+ENTRYPOINT ["/usr/local/bin/qitos-cybergym-entrypoint"]
+CMD ["--run"]

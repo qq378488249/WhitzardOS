@@ -16,13 +16,16 @@
 set -euo pipefail
 
 MODE="${1:---launch}"
-WORKSPACE_ROOT="/data/pxd-team/workspace/jcy/cyber-agent"
-CYBERGYM_ROOT="/data/pxd-team/workspace-149/zwq/cybergym"
-DATA_DIR="${CYBERGYM_ROOT}/cybergym_data/data"
-AGENT_ROOT="${WORKSPACE_ROOT}/cybergym_agent"
-QITOS_ROOT="${WORKSPACE_ROOT}/qitos"
-PYTHON_BIN="/data3t/conda_envs/cybergym/bin/python3"
-BINARY_DIR="/data3t/cybergym-bin/cybergym-server-data"
+# Every host-specific path defaults to the validated 149 layout but can be
+# overridden from the environment, so the same launcher deploys to another
+# server without editing this file (see deploy/cybergym/).
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-/data/pxd-team/workspace/jcy/cyber-agent}"
+CYBERGYM_ROOT="${CYBERGYM_ROOT:-/data/pxd-team/workspace-149/zwq/cybergym}"
+DATA_DIR="${DATA_DIR:-${CYBERGYM_ROOT}/cybergym_data/data}"
+AGENT_ROOT="${AGENT_ROOT:-${WORKSPACE_ROOT}/cybergym_agent}"
+QITOS_ROOT="${QITOS_ROOT:-${WORKSPACE_ROOT}/qitos}"
+PYTHON_BIN="${PYTHON_BIN:-/data3t/conda_envs/cybergym/bin/python3}"
+BINARY_DIR="${BINARY_DIR:-/data3t/cybergym-bin/cybergym-server-data}"
 DOCKER_IMAGE="${DOCKER_IMAGE:-cage/claude-code:cyberdebug}"
 DOCKER_NETWORK="${DOCKER_NETWORK:-host}"
 
@@ -35,13 +38,25 @@ RUNTIME_CONFIG="${RUN_ROOT}/.v14_gdb_launch.env"
 
 # tmux may have been created by another shell and does not reliably inherit
 # arbitrary custom environment variables. Child modes therefore source a
-# mode-600 run-local config written by --launch.
+# mode-600 run-local config written by --launch. Explicit environment (for
+# example a systemd EnvironmentFile) wins over that file, so a stale run-local
+# config cannot silently point a deployment at an old endpoint.
 if [[ "$MODE" != "--launch" && -f "$RUNTIME_CONFIG" ]]; then
-  # shellcheck disable=SC1090
-  source "$RUNTIME_CONFIG"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    # Values are written by write_runtime_config with printf %q, so they are
+    # already shell-quoted.
+    if [[ -z "${!key:-}" ]]; then
+      eval "$key=$value"
+    fi
+  done < "$RUNTIME_CONFIG"
 fi
 
 TASK_FILE="${TASK_FILE:-}"
+SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
 SERVER_PORT="${SERVER_PORT:-}"
 BASE_URL="${BASE_URL:-}"
 LLM_API_KEY="${LLM_API_KEY:-}"
@@ -55,7 +70,12 @@ GROUP_NAME="${GROUP_NAME:-$(basename "$RUN_ROOT")}"
 TMUX_SESSION="${TMUX_SESSION:-jcy-${GROUP_NAME}}"
 TRACE_PREFIX="${TRACE_PREFIX:-qitos_${GROUP_NAME}_glm-51}"
 OUTPUT_JSONL="${OUTPUT_JSONL:-${RUN_ROOT}/cybergym_${GROUP_NAME}.jsonl}"
-SERVER_URL="http://127.0.0.1:${SERVER_PORT}"
+# --run may target an external verification server via SERVER_URL. Only derive
+# it from SERVER_HOST/SERVER_PORT when the caller did not provide one.
+if [[ -z "${SERVER_URL:-}" && -n "${SERVER_PORT:-}" ]]; then
+  SERVER_URL="http://${SERVER_HOST}:${SERVER_PORT}"
+fi
+SERVER_URL="${SERVER_URL:-}"
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
 require_value() {
@@ -68,14 +88,19 @@ require_value() {
 
 validate_config() {
   require_value TASK_FILE "$TASK_FILE"
-  require_value SERVER_PORT "$SERVER_PORT"
+  if [[ "$MODE" == "--run" ]]; then
+    # Batch-only deployments point at a verification server started elsewhere.
+    require_value SERVER_URL "$SERVER_URL"
+  else
+    require_value SERVER_PORT "$SERVER_PORT"
+    [[ "$SERVER_PORT" =~ ^[0-9]+$ ]] || {
+      echo "SERVER_PORT must be numeric: $SERVER_PORT" >&2
+      exit 2
+    }
+  fi
   require_value BASE_URL "$BASE_URL"
   require_value LLM_API_KEY "$LLM_API_KEY"
   require_value CYBERGYM_GRADING_KEY "$CYBERGYM_GRADING_KEY"
-  [[ "$SERVER_PORT" =~ ^[0-9]+$ ]] || {
-    echo "SERVER_PORT must be numeric: $SERVER_PORT" >&2
-    exit 2
-  }
   test -x "$PYTHON_BIN"
   test -f "$TASK_FILE"
   test -d "$BINARY_DIR"
@@ -87,7 +112,17 @@ write_runtime_config() {
   mkdir -p "$RUN_ROOT"
   umask 077
   {
+    printf 'WORKSPACE_ROOT=%q\n' "$WORKSPACE_ROOT"
+    printf 'CYBERGYM_ROOT=%q\n' "$CYBERGYM_ROOT"
+    printf 'DATA_DIR=%q\n' "$DATA_DIR"
+    printf 'AGENT_ROOT=%q\n' "$AGENT_ROOT"
+    printf 'QITOS_ROOT=%q\n' "$QITOS_ROOT"
+    printf 'PYTHON_BIN=%q\n' "$PYTHON_BIN"
+    printf 'BINARY_DIR=%q\n' "$BINARY_DIR"
+    printf 'DOCKER_IMAGE=%q\n' "$DOCKER_IMAGE"
+    printf 'DOCKER_NETWORK=%q\n' "$DOCKER_NETWORK"
     printf 'TASK_FILE=%q\n' "$TASK_FILE"
+    printf 'SERVER_HOST=%q\n' "$SERVER_HOST"
     printf 'SERVER_PORT=%q\n' "$SERVER_PORT"
     printf 'BASE_URL=%q\n' "$BASE_URL"
     printf 'LLM_API_KEY=%q\n' "$LLM_API_KEY"
@@ -109,7 +144,7 @@ sync_agent() {
   (
     flock 9
     QITOS_ROOT="$QITOS_ROOT" bash "$AGENT_ROOT/scripts/sync_to_qitos.sh"
-  ) 9>"/tmp/qitos_sync.${USER:-pgroup}.lock"
+  ) 9>"/tmp/qitos_sync.$(id -un).lock"
 }
 
 cleanup_batch_containers() {
@@ -132,7 +167,7 @@ run_server() {
   export CYBERGYM_API_KEY="$CYBERGYM_GRADING_KEY"
   export PYTHONPATH="$CYBERGYM_ROOT/src:${PYTHONPATH:-}"
   exec "$PYTHON_BIN" -m cybergym.server \
-    --host 127.0.0.1 \
+    --host "$SERVER_HOST" \
     --port "$SERVER_PORT" \
     --log_dir "$RUN_ROOT/server_poc" \
     --db_path "$RUN_ROOT/server_poc/poc.db" \

@@ -18,6 +18,7 @@ QitOS 主仓库是小而清晰的核心框架。产品级 / 展示级应用会�
 
 ## 最新进展
 
+- **CyberGym 跑批服务器部署**：`deploy/` 现在是自包含部署包，包含两份预构建镜像、systemd 单元、由 `.env` 驱动的单服务 Docker Compose 跑批（验证服务单独启动，通过 `SERVER_URL` 指定）、启动前自检脚本和 server 判分脚本（`scripts/cybergym_server_score.py`）；[服务器部署指南](https://qitor.mintlify.app/zh/guides/cybergym-server-deployment)覆盖 Docker 镜像准备、打分 key、成绩查询、资源估算、续跑语义和分机部署。
 - **支持 MiMo 家族**：`mimo-v2.6-flash` / `mimo-v2.6-pro` 现在通过内建的 `mimo` 家族预设解析（多动作 JSON 通道、256k 上下文），不再报 `Unknown QitOS model family preset`；CyberGym 运行会为 MiMo 与 DeepSeek 推理模型默认提供 64k 输出预算和 30 分钟请求超时。
 - **CyberGym 跑通掩码表服务器**：新增 `CYBERGYM_MASK_MAP`，让任务包用掩码后的任务 ID 与匹配的 checksum 生成，PoC 提交不再被 `Invalid task_id` 拒绝；上下文压缩也会保留严格 OpenAI 兼容网关要求的 `tool_call_id` 关联。
 - **qita 轨迹分析工作台**：run 页面现在默认进入失败诊断视图，用 Focus Navigator、Agent Behavior Story 和右侧 Inspector 引导用户先看关键证据。每步按照 `Input -> Thought -> Action Calls -> Environment Observation` 展示；每个 action 都和自己的完整参数、状态、耗时及 model-visible result 成对出现，canonical raw 与无法配对的证据仍可在 Inspector 审计。异常调用默认展开、成功调用默认折叠，长正文自动折行且绝不会只有截断预览。CyberGym 的预算耗尽和 `submit_poc` 验证失败会被提升为重点复盘信号；Light/Dark 主题覆盖 board、run、replay 与 compare 页面。

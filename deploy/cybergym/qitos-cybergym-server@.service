@@ -1,0 +1,36 @@
+# CyberGym verification server for one experiment group.
+#
+# Install:
+#   sudo cp qitos-cybergym-server@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now qitos-cybergym-server@group-name.service
+#
+# The instance name (after @) selects /etc/qitos/cybergym/<instance>.env.
+# See deploy/cybergym/README.md for the full setup.
+
+[Unit]
+Description=QitOS CyberGym verification server (%i)
+Documentation=https://qitor.mintlify.app/guides/cybergym-server-deployment
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qitos
+Group=qitos
+EnvironmentFile=/etc/qitos/cybergym/%i.env
+# Absolute path to launch_v14_gdb_149.sh in the deployed checkout. Replace the
+# path, or install a symlink at /usr/local/bin/qitos-cybergym-launch.
+ExecStart=/usr/local/bin/qitos-cybergym-launch --server
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=60
+LimitNOFILE=65536
+
+# Light hardening: the server needs no elevated privileges of its own.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

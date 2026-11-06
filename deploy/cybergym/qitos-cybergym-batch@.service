@@ -1,0 +1,45 @@
+# CyberGym batch runner for one experiment group.
+#
+# Install:
+#   sudo cp qitos-cybergym-batch@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now qitos-cybergym-batch@group-name.service
+#
+# The instance name (after @) selects /etc/qitos/cybergym/<instance>.env and
+# must match the verification server instance. See deploy/cybergym/README.md.
+
+[Unit]
+Description=QitOS CyberGym batch runner (%i)
+Documentation=https://qitor.mintlify.app/guides/cybergym-server-deployment
+Requires=qitos-cybergym-server@%i.service
+Wants=network-online.target
+After=qitos-cybergym-server@%i.service docker.service network-online.target
+# The runner has no checkpoint: a restart loses the in-flight task's steps and
+# re-runs it from zero. Completed tasks are skipped by --resume, so a bounded
+# restart is safe, but keep the burst limit low to avoid a crash loop.
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=qitos
+Group=qitos
+SupplementaryGroups=docker
+EnvironmentFile=/etc/qitos/cybergym/%i.env
+# Same launcher as the server; the mode flag selects the batch path.
+ExecStart=/usr/local/bin/qitos-cybergym-launch --run
+Restart=on-failure
+RestartSec=30
+# SIGTERM to the main process lets the launcher's EXIT trap stop the batch and
+# remove its containers before systemd escalates.
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=180
+LimitNOFILE=65536
+
+NoNewPrivileges=yes
+# No PrivateTmp: sync_to_qitos.sh takes a flock in /tmp, and a manual sync run
+# from a shell must coordinate with the service.
+
+[Install]
+WantedBy=multi-user.target
