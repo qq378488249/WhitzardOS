@@ -48,9 +48,12 @@ COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 WORKDIR /opt/qitos-bench/qitos
 COPY pyproject.toml setup.py MANIFEST.in README.md LICENSE ./
 COPY qitos ./qitos
-COPY scripts ./scripts
 
 RUN pip install -e ".[models]"
+
+# Copied after the pip layer so script-only changes do not rebuild the
+# dependency layer.
+COPY scripts ./scripts
 
 # The bundled agent doubles as AGENT_ROOT. The launcher re-syncs it into
 # qitos/benchmark/cybergym/agent on every start, so that destination must stay

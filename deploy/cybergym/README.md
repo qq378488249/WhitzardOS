@@ -9,6 +9,7 @@
 | `compose.yaml` | 单服务 Compose，仅运行 batch；server 在外部 |
 | `compose.build.yaml` | 可选覆盖：从源码重建 runner 镜像 |
 | `compose-preflight.sh` | 启动前自检 |
+| `score.sh` | 在 runner 镜像里运行 server 判分脚本 |
 | `Dockerfile.runner` | runner 镜像构建文件 |
 | `Dockerfile.runner.dockerignore` | 构建上下文排除规则 |
 | `docker-entrypoint.sh` | 容器入口，校验 `.env` 并启动 launcher |
