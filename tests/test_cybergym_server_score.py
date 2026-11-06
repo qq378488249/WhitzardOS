@@ -67,3 +67,42 @@ def test_read_task_file(tmp_path: Path):
     path = tmp_path / "tasks.txt"
     path.write_text("arvo:1\n\n# comment\narvo:2\n", encoding="utf-8")
     assert server_score._read_task_file(path) == ["arvo:1", "arvo:2"]
+
+
+def test_api_rows_and_timestamp_normalization():
+    rows = [
+        {
+            "task_id": "arvo:3938",
+            "vul_exit_code": 1,
+            "fix_exit_code": 0,
+            "created_at": "2026-11-06T08:26:40.424835",
+            "poc_length": 26,
+        },
+        {
+            "task_id": "arvo:1065",
+            "vul_exit_code": 139,
+            "fix_exit_code": 139,
+            "created_at": "2026-11-06T08:34:37.513336",
+            "poc_length": 5,
+        },
+        {
+            "task_id": "arvo:14582",
+            "vul_exit_code": 1,
+            "fix_exit_code": 0,
+            "created_at": "2026-11-06T09:02:21.316032",
+            "poc_length": 32773,
+        },
+    ]
+    scores = [
+        server_score.score_task_rows(row["task_id"], [row], since="2026-11-06 08:10:00")
+        for row in rows
+    ]
+    assert [score.passed for score in scores] == [True, False, True]
+
+    # T timestamps and space-separated --since values compare correctly.
+    assert server_score.score_task_rows(
+        "arvo:3938", [rows[0]], since="2026-11-06 08:30:00"
+    ).attempts == 0
+    assert server_score.score_task_rows(
+        "arvo:14582", [rows[2]], since="2026-11-06 08:30:00"
+    ).passed is True
