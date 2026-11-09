@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import sqlite3
 import sys
+import urllib.error
 from pathlib import Path
+from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "cybergym_server_score.py"
 _spec = importlib.util.spec_from_file_location("cybergym_server_score", SCRIPT)
@@ -106,3 +109,17 @@ def test_api_rows_and_timestamp_normalization():
     assert server_score.score_task_rows(
         "arvo:14582", [rows[2]], since="2026-11-06 08:30:00"
     ).passed is True
+
+
+def test_api_404_means_no_records():
+    error = urllib.error.HTTPError(
+        "http://example/query-poc",
+        404,
+        "Not Found",
+        {},
+        io.BytesIO(b'{"detail":"Record not found"}'),
+    )
+    opener = mock.Mock()
+    opener.open.side_effect = error
+    with mock.patch.object(server_score.urllib.request, "build_opener", return_value=opener):
+        assert server_score._query_api("http://example", "key", "arvo:64898", 1.0) == []

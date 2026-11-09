@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Score a CyberGym run inside Docker, so the host needs no Python.
 #
-# It reads deploy/cybergym/.env for SERVER_URL, TASK_FILE, and
-# CYBERGYM_GRADING_KEY, then runs scripts/cybergym_server_score.py from the
-# runner image against the server's live /query-poc API.
+# It reads the .env next to this script (or deploy/cybergym/.env in the repo
+# layout) for SERVER_URL, TASK_FILE, and CYBERGYM_GRADING_KEY, then runs
+# scripts/cybergym_server_score.py against the server's live /query-poc API.
 #
 # Usage:
 #   bash deploy/cybergym/score.sh
@@ -17,9 +17,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="${SCORE_ENV_FILE:-$ROOT/deploy/cybergym/.env}"
+if [[ -n "${SCORE_ENV_FILE:-}" ]]; then
+  ENV_FILE="$SCORE_ENV_FILE"
+elif [[ -f "$SCRIPT_DIR/.env" ]]; then
+  ENV_FILE="$SCRIPT_DIR/.env"
+else
+  ENV_FILE="$ROOT/deploy/cybergym/.env"
+fi
 IMAGE="${SCORE_IMAGE:-qitos-cybergym-runner:local}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+SCORER=/opt/qitos-bench/qitos/scripts/cybergym_server_score.py
 ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -37,7 +44,7 @@ done
 
 [[ -f "$ENV_FILE" ]] || {
   echo "env file not found: $ENV_FILE" >&2
-  echo "create it with: cp deploy/cybergym/.env.compose.example deploy/cybergym/.env" >&2
+  echo "create it with: cp .env.compose.example .env (or pass --env-file)" >&2
   exit 2
 }
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a
@@ -52,7 +59,7 @@ exec "$DOCKER_BIN" run --rm \
   -v "$TASK_FILE:$TASK_FILE:ro" \
   --entrypoint python \
   "$IMAGE" \
-  /opt/qitos-bench/qitos/scripts/cybergym_server_score.py \
+  "$SCORER" \
   --server-url "$SERVER_URL" \
   --api-key "$CYBERGYM_GRADING_KEY" \
   --task-file "$TASK_FILE" \

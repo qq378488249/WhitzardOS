@@ -147,6 +147,10 @@ def _query_api(server_url: str, api_key: str, task_id: str, timeout: float) -> l
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read(300).decode("utf-8", "replace")
+        if exc.code == 404:
+            # The server returns 404 when the task has no PoC records yet.
+            # That is a MISS for this task, not a scorer failure.
+            return []
         raise RuntimeError(f"query-poc failed for {task_id}: HTTP {exc.code} {detail}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"query-poc failed for {task_id}: {exc.reason}") from exc
