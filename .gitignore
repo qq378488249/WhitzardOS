@@ -184,3 +184,6 @@ docs/zh/reference/api_generated/
 
 # Deployment image bundles (generated locally; ship via archive, not git)
 deploy/images/*.tar.gz
+
+# Local env backups (contain secrets)
+deploy/cybergym/.env.backup*
