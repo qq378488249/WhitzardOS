@@ -31,7 +31,7 @@ load_env() {
 
 command -v docker >/dev/null 2>&1 || fail "docker is not installed"
 docker compose version >/dev/null 2>&1 || fail "docker compose is not available"
-[[ -f "$ENV_FILE" ]] || fail "env file not found: $ENV_FILE (copy deploy/cybergym/.env.example)"
+[[ -f "$ENV_FILE" ]] || fail "env file not found: $ENV_FILE (copy deploy/cybergym/.env.compose.example)"
 load_env "$ENV_FILE"
 
 for var in RUN_ROOT CYBERGYM_ROOT DATA_DIR BINARY_DIR TASK_FILE SERVER_URL BASE_URL LLM_API_KEY CYBERGYM_GRADING_KEY; do

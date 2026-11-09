@@ -37,7 +37,7 @@ done
 
 [[ -f "$ENV_FILE" ]] || {
   echo "env file not found: $ENV_FILE" >&2
-  echo "create it with: cp deploy/cybergym/.env.example deploy/cybergym/.env" >&2
+  echo "create it with: cp deploy/cybergym/.env.compose.example deploy/cybergym/.env" >&2
   exit 2
 }
 [[ -f "$ENV_FILE" ]] && set -a && source "$ENV_FILE" && set +a

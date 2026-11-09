@@ -164,7 +164,7 @@ CYBERGYM_MASK_MAP=/opt/cybergym/mask_map.json
 ```bash
 sudo install -d -m 0750 -o root -g qitos /etc/qitos/cybergym
 sudo install -m 0640 -o root -g qitos \
-  /opt/qitos-bench/qitos/deploy/cybergym/.env.example \
+  /opt/qitos-bench/qitos/deploy/cybergym/.env.systemd.example \
   /etc/qitos/cybergym/level1-a.env
 sudo editor /etc/qitos/cybergym/level1-a.env
 ```
@@ -251,7 +251,7 @@ journalctl -u qitos-cybergym-batch@level1-a -f
 所有配置（包括两把 key）都从 `deploy/cybergym/.env` 读取：
 
 ```bash
-cp deploy/cybergym/.env.example deploy/cybergym/.env
+cp deploy/cybergym/.env.compose.example deploy/cybergym/.env
 chmod 600 deploy/cybergym/.env
 $EDITOR deploy/cybergym/.env
 ```
@@ -261,7 +261,7 @@ $EDITOR deploy/cybergym/.env
 | 键 | 说明 |
 | --- | --- |
 | `RUN_ROOT`、`TASK_FILE`、`GROUP_NAME`、`TRACE_PREFIX` | 一个跑批组；`TRACE_PREFIX` 带上 agent 版本 tag |
-| `WORKSPACE_ROOT`、`CYBERGYM_ROOT`、`DATA_DIR`、`QITOS_ROOT`、`BINARY_DIR` | 上面布局中的宿主机绝对路径 |
+| `CYBERGYM_ROOT`、`DATA_DIR`、`BINARY_DIR` | 上面布局中的宿主机绝对路径。`WORKSPACE_ROOT`、`AGENT_ROOT`、`QITOS_ROOT`、`PYTHON_BIN` 由 Compose 固定 |
 | `SERVER_URL` | 你单独启动的验证服务地址：同机用 `http://host.docker.internal:6441`，异机用 `http://10.0.0.5:6441`。bridge 网络里的跑批容器**不能**用 `127.0.0.1` |
 | `BASE_URL`、`MODEL_NAME`、`LLM_API_KEY` | `BASE_URL` **必须**以 `/v1` 结尾 |
 | `CYBERGYM_GRADING_KEY` | 必须与验证服务一致；绝不能复用 `LLM_API_KEY` |

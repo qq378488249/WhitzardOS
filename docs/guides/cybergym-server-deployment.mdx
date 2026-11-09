@@ -164,7 +164,7 @@ Install the environment template once per group:
 ```bash
 sudo install -d -m 0750 -o root -g qitos /etc/qitos/cybergym
 sudo install -m 0640 -o root -g qitos \
-  /opt/qitos-bench/qitos/deploy/cybergym/.env.example \
+  /opt/qitos-bench/qitos/deploy/cybergym/.env.systemd.example \
   /etc/qitos/cybergym/level1-a.env
 sudo editor /etc/qitos/cybergym/level1-a.env
 ```
@@ -251,7 +251,7 @@ Because the engine passes host paths to `docker run -v` for each task container,
 All configuration, including both keys, comes from `deploy/cybergym/.env`:
 
 ```bash
-cp deploy/cybergym/.env.example deploy/cybergym/.env
+cp deploy/cybergym/.env.compose.example deploy/cybergym/.env
 chmod 600 deploy/cybergym/.env
 $EDITOR deploy/cybergym/.env
 ```
@@ -261,7 +261,7 @@ Set at least:
 | Key | Notes |
 | --- | --- |
 | `RUN_ROOT`, `TASK_FILE`, `GROUP_NAME`, `TRACE_PREFIX` | One run group; `TRACE_PREFIX` carries the agent version tag |
-| `WORKSPACE_ROOT`, `CYBERGYM_ROOT`, `DATA_DIR`, `QITOS_ROOT`, `BINARY_DIR` | Host paths from the layout above |
+| `CYBERGYM_ROOT`, `DATA_DIR`, `BINARY_DIR` | Host paths from the layout above. `WORKSPACE_ROOT`, `AGENT_ROOT`, `QITOS_ROOT`, and `PYTHON_BIN` are pinned by Compose |
 | `SERVER_URL` | Address of the verification server you started separately: `http://host.docker.internal:6441` when it runs on this host, or `http://10.0.0.5:6441` for another machine. Do **not** use `127.0.0.1` from the bridge-networked batch container |
 | `BASE_URL`, `MODEL_NAME`, `LLM_API_KEY` | `BASE_URL` **must** end with `/v1` |
 | `CYBERGYM_GRADING_KEY` | Must match the verification server; never reuse `LLM_API_KEY` |

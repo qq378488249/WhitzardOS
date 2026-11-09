@@ -17,7 +17,8 @@ deploy/
 │   ├── SHA256SUMS
 │   └── README.md
 └── cybergym/
-    ├── .env.example                   # 全部配置和 key 的模板
+    ├── .env.compose.example           # Docker Compose 部署模板
+    ├── .env.systemd.example           # systemd/宿主机部署模板
     ├── compose.yaml                   # 单服务：cybergym-batch
     ├── compose.build.yaml             # 可选：从源码重建 runner
     ├── compose-preflight.sh           # 启动前自检
@@ -75,13 +76,13 @@ vi /opt/qitos-bench/runs/level1-a/tasks.txt
 ## 4. 配置 .env
 
 ```bash
-cp cybergym/.env.example cybergym/.env
+cp cybergym/.env.compose.example cybergym/.env
 chmod 600 cybergym/.env
 $EDITOR cybergym/.env
 ```
 
 一份填好的例子（每一项的完整中文说明见
-[`cybergym/.env.example`](cybergym/.env.example)）：
+[`cybergym/.env.compose.example`](cybergym/.env.compose.example)）：
 
 ```bash
 # ---- 宿主机路径 ----

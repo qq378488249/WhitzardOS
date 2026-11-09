@@ -5,7 +5,8 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `.env.example` | 全部配置和密钥模板；复制成 `.env` |
+| `.env.compose.example` | Docker Compose 部署模板；复制成 `.env` |
+| `.env.systemd.example` | systemd/宿主机部署模板；复制到 `/etc/qitos/cybergym/<group>.env` |
 | `compose.yaml` | 单服务 Compose，仅运行 batch；server 在外部 |
 | `compose.build.yaml` | 可选覆盖：从源码重建 runner 镜像 |
 | `compose-preflight.sh` | 启动前自检 |
@@ -23,7 +24,7 @@
 docker load -i images/cage-claude-code-cyberdebug.tar.gz
 docker load -i images/qitos-cybergym-runner-local.tar.gz
 
-cp cybergym/.env.example cybergym/.env
+cp cybergym/.env.compose.example cybergym/.env
 chmod 600 cybergym/.env
 $EDITOR cybergym/.env
 
@@ -50,12 +51,12 @@ docker compose --env-file deploy/cybergym/.env \
 
 两个单元调用
 `qitos/benchmark/cybergym/agent/scripts/launch_v14_gdb_149.sh`，路径默认是
-149 布局，可用环境变量覆盖。复制同一份模板到每个组：
+149 布局，可用环境变量覆盖。复制 systemd 模板到每个组：
 
 ```bash
 sudo install -d -m 0750 -o root -g qitos /etc/qitos/cybergym
 sudo install -m 0640 -o root -g qitos \
-  deploy/cybergym/.env.example /etc/qitos/cybergym/level1-a.env
+  deploy/cybergym/.env.systemd.example /etc/qitos/cybergym/level1-a.env
 ```
 
 ```bash

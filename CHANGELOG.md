@@ -33,6 +33,7 @@ How to update:
 
 ### Changed
 
+- Split the CyberGym deployment environment template into `.env.compose.example` (Docker Compose) and `.env.systemd.example` (systemd/host), so each deployment path only carries the keys it actually uses.
 - `launch_v14_gdb_149.sh` now reads `WORKSPACE_ROOT`, `CYBERGYM_ROOT`, `DATA_DIR`, `AGENT_ROOT`, `QITOS_ROOT`, `PYTHON_BIN`, `BINARY_DIR`, `SERVER_HOST`, and `SERVER_URL` from the environment before falling back to the 149 defaults, so a systemd `EnvironmentFile` can deploy the same launcher on another host without editing it. Explicit environment values also win over the run-local `.v14_gdb_launch.env` used by tmux child modes, so a stale file cannot silently redirect a deployment.
 - CyberGym GLM runs now use the reasoning-model output budget (`65536` tokens) and the 30-minute request timeout instead of `20000` tokens / 360 s. GLM 5.x reasoning regularly spent the whole 20k budget on chain-of-thought, so long tasks were cut at exactly 20 000 completion tokens.
 - DeepSeek V4 models resolve to their endpoint's real 1M context window instead of the earlier 256k cap. The engine keeps the whole conversation in RAM, so a host running several concurrent runs still needs the memory for it.
