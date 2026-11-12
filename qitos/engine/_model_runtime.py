@@ -14,7 +14,7 @@ from ..core.action import Action
 
 _logger = logging.getLogger("qitos.engine._model_runtime")
 from ..core.decision import Decision
-from ..core.errors import ErrorCategory, ParseExecutionError, RuntimeErrorInfo
+from ..core.errors import ErrorCategory, LLMCallError, ParseExecutionError, RuntimeErrorInfo
 from ..core.model_response import ModelResponse
 from ..core.multimodal import (
     content_to_text,
@@ -467,6 +467,23 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         return options
 
     def _call_llm(
+        self, llm: Any, messages: List[Dict[str, Any]], request_options: Dict[str, Any]
+    ) -> Any:
+        """Call the provider and mark any failure as a recoverable LLM error.
+
+        Context overflow keeps its own exception so the reactive-compaction
+        path still recognizes it; everything else is wrapped in LLMCallError
+        so error classification never depends on provider-specific wording.
+        The recovery policy's consecutive-failure cap bounds the retries.
+        """
+        try:
+            return self._dispatch_llm_call(llm, messages, request_options)
+        except (ContextOverflowError, LLMCallError):
+            raise
+        except Exception as exc:
+            raise LLMCallError(str(exc)) from exc
+
+    def _dispatch_llm_call(
         self, llm: Any, messages: List[Dict[str, Any]], request_options: Dict[str, Any]
     ) -> Any:
         # If streaming is requested and the model supports it, use streaming path

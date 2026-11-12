@@ -13,7 +13,7 @@ deploy/
 ├── README.md                          # 本文件
 ├── images/
 │   ├── cage-claude-code-cyberdebug.tar.gz     # 每任务 agent 镜像
-│   ├── qitos-cybergym-runner-local.tar.gz     # 跑批控制容器镜像
+│   ├── qitos-cybergym-runner-1.0.2.tar.gz     # 跑批控制容器镜像
 │   ├── SHA256SUMS
 │   └── README.md
 └── cybergym/
@@ -51,7 +51,7 @@ cd /path/to/deploy
 sha256sum -c images/SHA256SUMS
 
 docker load -i images/cage-claude-code-cyberdebug.tar.gz
-docker load -i images/qitos-cybergym-runner-local.tar.gz
+docker load -i images/qitos-cybergym-runner-1.0.2.tar.gz
 
 docker images | grep -E 'cage/claude-code:cyberdebug|qitos-cybergym-runner'
 ```
@@ -265,14 +265,26 @@ docker compose --env-file deploy/cybergym/.env \
 重建后可以重新导出镜像包：
 
 ```bash
-docker save qitos-cybergym-runner:local | gzip -1 > deploy/images/qitos-cybergym-runner-local.tar.gz
+docker save qitos-cybergym-runner:1.0.1 qitos-cybergym-runner:local \
+  | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.2.tar.gz
+```
+
+内网或访问 Docker Hub / PyPI 较慢的构建机可以通过构建参数换源：
+
+```bash
+DOCKER_CLI_IMAGE=docker.1ms.run/library/docker:cli \
+PYTHON_BASE_IMAGE=python:3.12-slim \
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+DEBIAN_MIRROR=mirrors.aliyun.com \
+docker compose --env-file deploy/cybergym/.env \
+  -f deploy/cybergym/compose.yaml -f deploy/cybergym/compose.build.yaml build
 ```
 
 ## 11. 常见问题
 
 | 现象 | 处理 |
 | --- | --- |
-| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-local.tar.gz` |
+| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-1.0.2.tar.gz` |
 | `agent image ... is missing` | `docker load -i images/cage-claude-code-cyberdebug.tar.gz` |
 | `submit_poc` 连接被拒/超时 | 检查 `SERVER_URL`；同机用 `host.docker.internal` 时 server 必须监听 `0.0.0.0`，不是 `127.0.0.1` |
 | `Invalid task_id` | 验证服务启用了 mask map；设置同源的 `CYBERGYM_MASK_MAP` |

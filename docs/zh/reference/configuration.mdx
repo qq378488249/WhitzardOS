@@ -102,7 +102,9 @@ class RuntimeBudget:
 | 失败 | 分类 | 可恢复 |
 |---|---|---|
 | 流式/读取超时、连接错误、网关重启（`no healthy upstream`、`bad gateway`） | `model_error` | 是 |
+| 网关 HTTP `502`/`503`/`504`（`ServiceUnavailableError`、`gateway timeout`、`temporarily unavailable`） | `model_error` | 是 |
 | 提供方鉴权失败（HTTP `401`、`Unauthorized`、密钥失效或被轮换） | `model_error`，`details={"auth_error": True}` | 是 |
+| 模型调用抛出的其它任何异常（包装为 `LLMCallError`） | `model_error`，`details={"llm_call_error": True}` | 是 |
 | 上下文长度溢出 | `model_error`（先尝试响应式压缩） | 是 |
 | `ACT` 阶段的工具错误 | `tool_error` | 是 |
 | 解析错误 | `parse_error` | 是 |
@@ -110,10 +112,13 @@ class RuntimeBudget:
 
 只有**连续**的可恢复失败会累计到上限：只要有一步成功，连续计数就会重置。因此一个彻底失效的密钥仍会在重试次数耗尽后终止运行。
 
+重试间隔是渐进式的：第一次重试等待 `QITOS_RECOVERY_BACKOFF` 秒，之后每连续失败一次翻倍，直到 `QITOS_RECOVERY_BACKOFF_MAX`。默认序列为 `1、2、4、8、16、30、30……` 秒。
+
 | 变量 | 默认值 | 用途 |
 |---|---|---|
 | `QITOS_MAX_RECOVERIES` | `100` | 连续可恢复失败的上限，超过后以 `unrecoverable_error`（`max_recovery_exhausted`）停止 |
-| `QITOS_AUTH_RECOVERY_BACKOFF` | `2.0` | 鉴权失败后重试前的等待秒数，限制在 `0`–`60`；设为 `0` 表示立即重试 |
+| `QITOS_RECOVERY_BACKOFF` | `1.0` | 任意可恢复失败第一次重试的基础等待秒数，之后每连续失败一次翻倍，限制在 `0`–`60`；设为 `0` 表示立即重试 |
+| `QITOS_RECOVERY_BACKOFF_MAX` | `30.0` | 渐进式重试间隔的上限，限制在 `0`–`600` |
 
 ## 环境变量
 
@@ -126,7 +131,8 @@ class RuntimeBudget:
 | `QITOS_API_KEY` | `ModelFactory.from_env()` 可识别的备用密钥 |
 | `QITOS_MODEL` | 默认模型 ID |
 | `QITOS_MAX_RECOVERIES` | 连续可恢复失败的上限，默认 `100` |
-| `QITOS_AUTH_RECOVERY_BACKOFF` | 鉴权失败后重试前的等待秒数，默认 `2.0`，限制在 `0`–`60` |
+| `QITOS_RECOVERY_BACKOFF` | 任意可恢复失败第一次重试的基础等待秒数，之后每连续失败一次翻倍，默认 `1.0`，限制在 `0`–`60` |
+| `QITOS_RECOVERY_BACKOFF_MAX` | 渐进式重试间隔的上限，默认 `30.0`，限制在 `0`–`600` |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI 密钥 |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI 端点 |
 | `AZURE_OPENAI_DEPLOYMENT` | Azure 部署名称 |

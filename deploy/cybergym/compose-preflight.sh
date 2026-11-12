@@ -61,7 +61,7 @@ mkdir -p "$RUN_ROOT/server_poc"
 docker image inspect cage/claude-code:cyberdebug >/dev/null 2>&1 \
   || fail "agent image cage/claude-code:cyberdebug is missing; docker load deploy/images/cage-claude-code-cyberdebug.tar.gz"
 docker image inspect qitos-cybergym-runner:local >/dev/null 2>&1 \
-  || fail "runner image qitos-cybergym-runner:local is missing; docker load deploy/images/qitos-cybergym-runner-local.tar.gz"
+  || fail "runner image qitos-cybergym-runner:local is missing; docker load deploy/images/qitos-cybergym-runner-1.0.2.tar.gz"
 echo "runner image: qitos-cybergym-runner:local (present)"
 
 if [[ "$SERVER_URL" == *"host.docker.internal"* ]]; then

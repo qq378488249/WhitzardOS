@@ -71,6 +71,16 @@ class SystemExecutionError(QitosRuntimeError):
     pass
 
 
+class LLMCallError(Exception):
+    """Wraps any exception raised by a model-provider call.
+
+    The engine marks provider-call failures with this type so classification
+    does not depend on provider-specific wording: every LLM call error is a
+    recoverable model error, bounded by the recovery policy's cap. The original
+    exception stays available as ``__cause__``.
+    """
+
+
 def _is_network_error(exc: Exception) -> bool:
     """Check if an exception is a transient network/SSL error."""
     # Standard Python errors
@@ -106,6 +116,34 @@ def classify_exception(exc: Exception, phase: str, step_id: int) -> RuntimeError
         return exc.info
     if isinstance(exc, SystemExecutionError):
         return exc.info
+
+    # Every exception raised by the provider call is retryable, regardless of
+    # its wording. This keeps new gateway error formats (5xx, provider-specific
+    # messages) from killing a run; the recovery cap still bounds retries.
+    if isinstance(exc, LLMCallError):
+        details: Dict[str, Any] = {"llm_call_error": True}
+        llm_msg = str(exc).lower()
+        if any(
+            marker in llm_msg
+            for marker in (
+                "error code: 401",
+                "authenticationerror",
+                "authentication error",
+                "unauthorized",
+                "invalid api key",
+                "invalid_api_key",
+                "incorrect api key",
+            )
+        ):
+            details["auth_error"] = True
+        return RuntimeErrorInfo(
+            category=ErrorCategory.MODEL,
+            message=str(exc),
+            phase=phase,
+            step_id=step_id,
+            recoverable=True,
+            details=details,
+        )
 
     msg = str(exc).lower()
 
@@ -176,6 +214,9 @@ def classify_exception(exc: Exception, phase: str, step_id: int) -> RuntimeError
     # (Restores pre-v06 behaviour; see tests/test_runtime_recovery.py. Without
     # this, a single GLM stream timeout in DECIDE was classified SYSTEM /
     # non-recoverable -> immediate unrecoverable_error, killing ~50% of tasks.)
+    # Gateway 5xx errors are matched explicitly: litellm renders them as
+    # "Error code: 503 - litellm.ServiceUnavailableError: ...", whose class
+    # name has no spaces and therefore never matched "service unavailable".
     if phase.lower() in {
         "decide",
         "propose",
@@ -193,7 +234,13 @@ def classify_exception(exc: Exception, phase: str, step_id: int) -> RuntimeError
             "api connection",
             "no healthy upstream",
             "service unavailable",
+            "serviceunavailable",
             "bad gateway",
+            "gateway timeout",
+            "temporarily unavailable",
+            "error code: 502",
+            "error code: 503",
+            "error code: 504",
             "overloaded",
         )
     ):

@@ -67,16 +67,27 @@ class RecoveryPolicy:
             except (TypeError, ValueError):
                 max_recoveries_per_run = 100
         self.max_recoveries_per_run = max_recoveries_per_run
-        # Delay before retrying a recoverable auth failure. Key rotation or a
-        # gateway credential reload usually takes seconds, so retrying
-        # immediately would just burn the recovery budget. Clamped to [0, 60].
+        # One progressive retry delay for every recoverable failure: the
+        # first retry waits `retry_backoff_seconds`, then the delay doubles per
+        # consecutive failure until `retry_backoff_max_seconds`. The cap keeps
+        # a long outage from sleeping for hours, and QITOS_MAX_RECOVERIES still
+        # bounds the total number of attempts.
         try:
-            self.auth_backoff_seconds = float(
-                os.environ.get("QITOS_AUTH_RECOVERY_BACKOFF", "2.0")
+            self.retry_backoff_seconds = float(
+                os.environ.get("QITOS_RECOVERY_BACKOFF", "1.0")
             )
         except (TypeError, ValueError):
-            self.auth_backoff_seconds = 2.0
-        self.auth_backoff_seconds = min(max(self.auth_backoff_seconds, 0.0), 60.0)
+            self.retry_backoff_seconds = 1.0
+        self.retry_backoff_seconds = min(max(self.retry_backoff_seconds, 0.0), 60.0)
+        try:
+            self.retry_backoff_max_seconds = float(
+                os.environ.get("QITOS_RECOVERY_BACKOFF_MAX", "30.0")
+            )
+        except (TypeError, ValueError):
+            self.retry_backoff_max_seconds = 30.0
+        self.retry_backoff_max_seconds = min(
+            max(self.retry_backoff_max_seconds, 0.0), 600.0
+        )
         # CONSECUTIVE recoverable-failure streak (by step contiguity), not a
         # lifetime total: scattered transient blips reset between successful
         # steps and are tolerated for the whole run, while a sustained outage
@@ -122,15 +133,19 @@ class RecoveryPolicy:
             )
 
         self.tracker.add(info, recommendation, decision="continue")
-        backoff = (
-            self.auth_backoff_seconds if info.details.get("auth_error") else 0.0
-        )
         return RecoveryDecision(
             handled=True,
             continue_run=True,
             note="recoverable_continue",
-            backoff_seconds=backoff,
+            backoff_seconds=self._backoff_for_streak(self._recoveries),
         )
+
+    def _backoff_for_streak(self, streak: int) -> float:
+        """Progressive delay before retry number ``streak`` (1-based)."""
+        if self.retry_backoff_seconds <= 0:
+            return 0.0
+        delay = self.retry_backoff_seconds * (2 ** max(int(streak) - 1, 0))
+        return float(min(delay, self.retry_backoff_max_seconds))
 
     def _recommendation_for(self, category: Any) -> str:
         key = getattr(category, "value", str(category))

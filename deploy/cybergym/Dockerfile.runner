@@ -13,16 +13,21 @@
 # version or an internal mirror, e.g. DOCKER_CLI_IMAGE=docker.1ms.run/docker:27-cli.
 ARG DOCKER_CLI_IMAGE=docker:27-cli
 ARG PYTHON_BASE_IMAGE=python:3.12-slim-bookworm
+# pip index override for build hosts behind a slow registry/CDN, e.g.
+# PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple.
+ARG PIP_INDEX_URL=https://pypi.org/simple
 
 FROM ${DOCKER_CLI_IMAGE} AS dockercli
 FROM ${PYTHON_BASE_IMAGE}
 
 ARG DEBIAN_MIRROR=deb.debian.org
+ARG PIP_INDEX_URL=https://pypi.org/simple
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL}
 
 RUN if [ "$DEBIAN_MIRROR" != "deb.debian.org" ]; then \
         sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
