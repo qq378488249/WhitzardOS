@@ -95,6 +95,26 @@ class RuntimeBudget:
     max_tokens: Optional[int] = None
 ```
 
+## 恢复策略
+
+`RecoveryPolicy` 决定步骤失败后是终止还是重试。`classify_exception()` 在模型驱动的阶段（`DECIDE`、`PROPOSE`、`PLAN`、`FORMULATION`、`INVESTIGATION`）会把以下失败标记为可恢复：
+
+| 失败 | 分类 | 可恢复 |
+|---|---|---|
+| 流式/读取超时、连接错误、网关重启（`no healthy upstream`、`bad gateway`） | `model_error` | 是 |
+| 提供方鉴权失败（HTTP `401`、`Unauthorized`、密钥失效或被轮换） | `model_error`，`details={"auth_error": True}` | 是 |
+| 上下文长度溢出 | `model_error`（先尝试响应式压缩） | 是 |
+| `ACT` 阶段的工具错误 | `tool_error` | 是 |
+| 解析错误 | `parse_error` | 是 |
+| 其它异常 | `system_error` | 否——立即以 `unrecoverable_error` 停止 |
+
+只有**连续**的可恢复失败会累计到上限：只要有一步成功，连续计数就会重置。因此一个彻底失效的密钥仍会在重试次数耗尽后终止运行。
+
+| 变量 | 默认值 | 用途 |
+|---|---|---|
+| `QITOS_MAX_RECOVERIES` | `100` | 连续可恢复失败的上限，超过后以 `unrecoverable_error`（`max_recovery_exhausted`）停止 |
+| `QITOS_AUTH_RECOVERY_BACKOFF` | `2.0` | 鉴权失败后重试前的等待秒数，限制在 `0`–`60`；设为 `0` 表示立即重试 |
+
 ## 环境变量
 
 常见环境变量包括：
@@ -105,6 +125,8 @@ class RuntimeBudget:
 | `OPENAI_BASE_URL` | OpenAI 兼容端点基础 URL |
 | `QITOS_API_KEY` | `ModelFactory.from_env()` 可识别的备用密钥 |
 | `QITOS_MODEL` | 默认模型 ID |
+| `QITOS_MAX_RECOVERIES` | 连续可恢复失败的上限，默认 `100` |
+| `QITOS_AUTH_RECOVERY_BACKOFF` | 鉴权失败后重试前的等待秒数，默认 `2.0`，限制在 `0`–`60` |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI 密钥 |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI 端点 |
 | `AZURE_OPENAI_DEPLOYMENT` | Azure 部署名称 |

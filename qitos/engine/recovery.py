@@ -17,6 +17,7 @@ class RecoveryDecision:
     note: Optional[str] = None
     state_patch: Optional[Dict[str, Any]] = None
     instruction_patch: Optional[str] = None
+    backoff_seconds: float = 0.0
 
 
 @dataclass
@@ -66,6 +67,16 @@ class RecoveryPolicy:
             except (TypeError, ValueError):
                 max_recoveries_per_run = 100
         self.max_recoveries_per_run = max_recoveries_per_run
+        # Delay before retrying a recoverable auth failure. Key rotation or a
+        # gateway credential reload usually takes seconds, so retrying
+        # immediately would just burn the recovery budget. Clamped to [0, 60].
+        try:
+            self.auth_backoff_seconds = float(
+                os.environ.get("QITOS_AUTH_RECOVERY_BACKOFF", "2.0")
+            )
+        except (TypeError, ValueError):
+            self.auth_backoff_seconds = 2.0
+        self.auth_backoff_seconds = min(max(self.auth_backoff_seconds, 0.0), 60.0)
         # CONSECUTIVE recoverable-failure streak (by step contiguity), not a
         # lifetime total: scattered transient blips reset between successful
         # steps and are tolerated for the whole run, while a sustained outage
@@ -111,8 +122,14 @@ class RecoveryPolicy:
             )
 
         self.tracker.add(info, recommendation, decision="continue")
+        backoff = (
+            self.auth_backoff_seconds if info.details.get("auth_error") else 0.0
+        )
         return RecoveryDecision(
-            handled=True, continue_run=True, note="recoverable_continue"
+            handled=True,
+            continue_run=True,
+            note="recoverable_continue",
+            backoff_seconds=backoff,
         )
 
     def _recommendation_for(self, category: Any) -> str:

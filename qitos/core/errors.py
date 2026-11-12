@@ -135,6 +135,39 @@ def classify_exception(exc: Exception, phase: str, step_id: int) -> RuntimeError
             recoverable=True,
         )
 
+    # Provider authentication failures in model-driven phases are recoverable.
+    # Relays rotate keys, restart with a different credential table, or let an
+    # upstream token expire mid-run, so one HTTP 401 should not kill a long
+    # task that was working moments earlier. The retry is bounded by the
+    # consecutive-failure cap in RecoveryPolicy, so a permanently dead key
+    # still stops the run instead of spinning forever.
+    if phase.lower() in {
+        "decide",
+        "propose",
+        "plan",
+        "formulation",
+        "investigation",
+    } and any(
+        marker in msg
+        for marker in (
+            "error code: 401",
+            "authenticationerror",
+            "authentication error",
+            "unauthorized",
+            "invalid api key",
+            "invalid_api_key",
+            "incorrect api key",
+        )
+    ):
+        return RuntimeErrorInfo(
+            category=ErrorCategory.MODEL,
+            message=str(exc),
+            phase=phase,
+            step_id=step_id,
+            recoverable=True,
+            details={"auth_error": True},
+        )
+
     # Transient model-call failures in model-driven phases are recoverable —
     # retry the step instead of killing the run. GLM/SGLang stream stalls and
     # gateway outages surface as openai.APIError("stream timeout") /

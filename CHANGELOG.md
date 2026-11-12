@@ -44,6 +44,7 @@ How to update:
 
 ### Fixed
 
+- Fixed provider authentication failures (HTTP `401`, `Unauthorized`, invalid or rotated API keys) killing a run that was progressing normally. They are now classified as recoverable `model_error`s in model-driven phases and retried up to the existing consecutive-recovery cap (`QITOS_MAX_RECOVERIES`, default 100), with a configurable delay (`QITOS_AUTH_RECOVERY_BACKOFF`, default 2 s) so a gateway key rotation can finish; a permanently dead key still stops the run with `unrecoverable_error` once the cap is exhausted. 401s raised outside model phases keep the previous fatal classification.
 - Fixed `cybergym_server_score.py` treating the CyberGym server's 404 (`Record not found`) for a task with no submissions as a fatal error; it now reports `MISS` and continues to the next task. `score.sh` also defaults to the `.env` next to the script for flat deployment folders and runs the scorer baked into the runner image.
 - Fixed the engine treating a generation cut by the output limit (`finish_reason=length`, no tool calls) as a final answer. Such responses now re-enter the loop as a `wait` decision with `decision_source=output_truncated`, instead of silently ending the run; response text extraction also no longer falls back to the provider object's `repr` when the message content is empty.
 - Fixed the render stream hook keeping every render event in memory, which made long agent runs grow into gigabytes and get OOM-killed; the in-memory buffer is now bounded (the full stream is still written to the JSONL file).

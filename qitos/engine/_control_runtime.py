@@ -408,6 +408,8 @@ class _ControlRuntime(Generic[StateT, ObservationT, ActionT]):
             engine._critic_instruction_patch = decision.instruction_patch
         if not decision.continue_run and state.stop_reason is None:
             state.set_stop(StopReason.UNRECOVERABLE_ERROR)
+        if decision.continue_run and decision.backoff_seconds > 0:
+            time.sleep(decision.backoff_seconds)
         return decision.continue_run
 
     def infer_failed_phase(self, record: StepRecord) -> RuntimePhase:

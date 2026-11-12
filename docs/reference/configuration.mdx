@@ -116,6 +116,28 @@ When a `Task` object is passed to `Engine.run()`, the `Task.budget` values overr
 
 ---
 
+## Recovery policy
+
+`RecoveryPolicy` decides whether a step failure stops the run or is retried. `classify_exception()` marks these failures as recoverable in model-driven phases (`DECIDE`, `PROPOSE`, `PLAN`, `FORMULATION`, `INVESTIGATION`):
+
+| Failure | Classified as | Recoverable |
+|---------|---------------|-------------|
+| Stream/read timeouts, connection errors, gateway restarts (`no healthy upstream`, `bad gateway`) | `model_error` | Yes |
+| Provider authentication failures (HTTP `401`, `Unauthorized`, invalid/rotated API key) | `model_error` with `details={"auth_error": True}` | Yes |
+| Context-length overflow | `model_error` (reactive compaction first) | Yes |
+| Tool errors in `ACT` | `tool_error` | Yes |
+| Parse errors | `parse_error` | Yes |
+| Anything else | `system_error` | No — stops immediately with `unrecoverable_error` |
+
+Only **consecutive** recoverable failures count toward the cap: the streak resets as soon as a step succeeds. A permanently dead key therefore still terminates the run once the streak is exhausted.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QITOS_MAX_RECOVERIES` | `100` | Maximum consecutive recoverable failures before the run stops with `unrecoverable_error` (`max_recovery_exhausted`) |
+| `QITOS_AUTH_RECOVERY_BACKOFF` | `2.0` | Seconds to wait before retrying an auth failure; clamped to `0`–`60`. Set to `0` to retry immediately |
+
+---
+
 ## Environment variables
 
 | Variable | Required | Description |
@@ -125,6 +147,8 @@ When a `Task` object is passed to `Engine.run()`, the `Task.budget` values overr
 | `QITOS_INFERENCE_KEY` | No | Compatibility fallback for OpenAI-compatible sticky routing. When a model instance does not set `inference_key`, this value is sent as `x-inspire-inference-key` |
 | `QITOS_API_KEY` | No | Alternative API key variable. Recognized by `ModelFactory.from_env()` as a fallback when `OPENAI_API_KEY` is not set |
 | `QITOS_MODEL` | No | Default model identifier. Read by `ModelFactory.from_env()` to select the model when none is specified in code |
+| `QITOS_MAX_RECOVERIES` | No | Maximum consecutive recoverable failures before a run stops with `unrecoverable_error`; defaults to `100` |
+| `QITOS_AUTH_RECOVERY_BACKOFF` | No | Seconds to wait before retrying a provider auth failure (`401`); defaults to `2.0`, clamped to `0`–`60` |
 | `AZURE_OPENAI_API_KEY` | Only for Azure | API key for Azure OpenAI. Used by `AzureOpenAIModel` |
 | `AZURE_OPENAI_ENDPOINT` | Only for Azure | Endpoint URL for Azure OpenAI |
 | `AZURE_OPENAI_DEPLOYMENT` | No | Deployment name for Azure OpenAI |
