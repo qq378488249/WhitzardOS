@@ -63,7 +63,25 @@ def test_collect_run_report_uses_success_as_final_result(tmp_path: Path) -> None
     assert report.success_count == 1
     assert report.tasks["arvo:1"].stop_reason == "success"
     assert report.tasks["arvo:1"].steps == 5
-    assert report.stop_reasons == {"success": 1, "final": 1}
+    assert report.stop_reasons == {"success": 1, "final_without_submit": 1}
+
+
+def test_final_stop_is_not_success_even_when_task_result_says_success(
+    tmp_path: Path,
+) -> None:
+    module = _load_script_module()
+    run_root = tmp_path / "run-final"
+    # The engine counts `final` among successful stop reasons, so manifests can
+    # carry task_result.success=True. CyberGym must still read it as a miss.
+    _write_manifest(run_root, "trace-final", "arvo:7", "final", success=True)
+
+    report = module.collect_run_report(run_root)
+
+    task = report.tasks["arvo:7"]
+    assert task.stop_reason == "final_without_submit"
+    assert task.success is False
+    assert report.success_count == 0
+    assert report.stop_reasons == {"final_without_submit": 1}
 
 
 def test_cli_writes_markdown_and_csv_for_multiple_runs(tmp_path: Path) -> None:

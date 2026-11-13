@@ -12,6 +12,10 @@ from typing import Any, Sequence
 
 
 SUCCESS_REASON = "success"
+# CyberGym accepts a run only when submit_poc verifies the candidate. The
+# engine's generic `final` stop reason (model self-declared completion) counts
+# as success in TaskResult, so the CyberGym report labels it explicitly.
+FINAL_WITHOUT_SUBMIT_REASON = "final_without_submit"
 
 
 @dataclass(frozen=True)
@@ -81,16 +85,17 @@ def _task_id_from_manifest(path: Path, obj: dict[str, Any]) -> str:
 def _stop_reason_from_manifest(obj: dict[str, Any]) -> str:
     summary = obj.get("summary") if isinstance(obj.get("summary"), dict) else {}
     task_result = summary.get("task_result") if isinstance(summary.get("task_result"), dict) else {}
-    if task_result.get("success") is True:
-        return SUCCESS_REASON
-    for value in (
-        task_result.get("stop_reason"),
-        summary.get("stop_reason"),
-        obj.get("status"),
-    ):
-        if value:
-            return str(value)
-    return "unknown"
+    # The trace's own stop reason wins: `task_result.success` is True for
+    # `final` too, which would mislabel a self-declared completion as success.
+    stop_reason = summary.get("stop_reason") or task_result.get("stop_reason")
+    if not stop_reason and task_result.get("success") is True:
+        stop_reason = SUCCESS_REASON
+    if not stop_reason:
+        stop_reason = obj.get("status") or "unknown"
+    normalized = str(stop_reason)
+    if normalized == "final":
+        return FINAL_WITHOUT_SUBMIT_REASON
+    return normalized
 
 
 def _optional_int(value: Any) -> int | None:
