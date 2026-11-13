@@ -13,7 +13,7 @@ deploy/
 ├── README.md                          # 本文件
 ├── images/
 │   ├── cage-claude-code-cyberdebug.tar.gz     # 每任务 agent 镜像
-│   ├── qitos-cybergym-runner-1.0.2.tar.gz     # 跑批控制容器镜像
+│   ├── qitos-cybergym-runner-1.0.4.tar.gz     # 跑批控制容器镜像
 │   ├── SHA256SUMS
 │   └── README.md
 └── cybergym/
@@ -51,7 +51,7 @@ cd /path/to/deploy
 sha256sum -c images/SHA256SUMS
 
 docker load -i images/cage-claude-code-cyberdebug.tar.gz
-docker load -i images/qitos-cybergym-runner-1.0.2.tar.gz
+docker load -i images/qitos-cybergym-runner-1.0.4.tar.gz
 
 docker images | grep -E 'cage/claude-code:cyberdebug|qitos-cybergym-runner'
 ```
@@ -231,7 +231,7 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml up -d
 ```
 
 - 跑批进程**没有 checkpoint**：中途被杀，该任务会从第 0 步重跑。
-- `--resume` 会跳过 `OUTPUT_JSONL` 中已有的任务，**失败任务也会跳过**。要重试某个任务，删掉结果文件里对应那一行和它的 `traces/` 目录，再启动。
+- `--resume` 会跳过 `OUTPUT_JSONL` 中已有的任务，**失败任务也会跳过**。每跑完一个任务结果就立即落盘，所以批处理中途崩溃后重启，只会重跑崩溃时正在进行的那个任务。要重试某个任务，删掉结果文件里对应那一行和它的 `traces/` 目录，再启动。
 
 ## 9. 开第二个组
 
@@ -265,8 +265,8 @@ docker compose --env-file deploy/cybergym/.env \
 重建后可以重新导出镜像包：
 
 ```bash
-docker save qitos-cybergym-runner:1.0.1 qitos-cybergym-runner:local \
-  | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.2.tar.gz
+docker save qitos-cybergym-runner:1.0.4 qitos-cybergym-runner:local \
+  | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.4.tar.gz
 ```
 
 内网或访问 Docker Hub / PyPI 较慢的构建机可以通过构建参数换源：
@@ -284,7 +284,7 @@ docker compose --env-file deploy/cybergym/.env \
 
 | 现象 | 处理 |
 | --- | --- |
-| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-1.0.2.tar.gz` |
+| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-1.0.4.tar.gz` |
 | `agent image ... is missing` | `docker load -i images/cage-claude-code-cyberdebug.tar.gz` |
 | `submit_poc` 连接被拒/超时 | 检查 `SERVER_URL`；同机用 `host.docker.internal` 时 server 必须监听 `0.0.0.0`，不是 `127.0.0.1` |
 | `Invalid task_id` | 验证服务启用了 mask map；设置同源的 `CYBERGYM_MASK_MAP` |

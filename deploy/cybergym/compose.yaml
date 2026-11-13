@@ -5,7 +5,7 @@
 #
 # Usage (from the repository root; from deploy/ drop the deploy/ prefix):
 #   docker load -i deploy/images/cage-claude-code-cyberdebug.tar.gz
-#   docker load -i deploy/images/qitos-cybergym-runner-1.0.2.tar.gz
+#   docker load -i deploy/images/qitos-cybergym-runner-1.0.4.tar.gz
 #   cp deploy/cybergym/.env.compose.example deploy/cybergym/.env
 #   $EDITOR deploy/cybergym/.env
 #   bash deploy/cybergym/compose-preflight.sh
@@ -56,8 +56,9 @@ services:
       - ${DATA_DIR:?set DATA_DIR in deploy/cybergym/.env}:${DATA_DIR}:ro
       - ${BINARY_DIR:-/opt/cybergym-bin/cybergym-server-data}:${BINARY_DIR:-/opt/cybergym-bin/cybergym-server-data}:ro
       - /var/run/docker.sock:/var/run/docker.sock
-    # The runner has no checkpoint: a restart re-runs the in-flight task from
-    # step 0, while --resume skips tasks already in OUTPUT_JSONL.
+    # Each finished task is appended to OUTPUT_JSONL immediately (flushed to
+    # disk), so a restart re-runs only the task that was in flight; --resume
+    # skips every task already written to the file.
     restart: "on-failure:3"
     stop_grace_period: 3m
     logging:
