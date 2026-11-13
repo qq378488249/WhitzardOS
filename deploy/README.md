@@ -254,7 +254,7 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml up -d
   bash /opt/qitos-bench/qitos/deploy/cybergym/trace_report.sh
   ```
 
-  输出每任务一行：结果、`stop_reason`、耗时、步数，以及失败原因（优先取 `manifest.json` 的 `failure_report`，其次 `last_error`，最后回退到 `stop_reason`）。`status=running` 的 trace 不显示，只在页脚计入 `running_skipped`。对 `stop_reason=final` 会继续读 `steps.jsonl` 的 `decision_source` 和 manifest 的 `parser`，区分"模型正常给出最终答复"、"模型工具调用文本无法解析"和"DSML 标记泄漏导致结束"。
+  输出每任务一行：结果、`stop_reason`、耗时、步数，以及失败原因。原因优先取终止性失败（`decision=stop`）；如果记录到的失败都已被重试恢复（`decision=continue`），则以 `stop_reason` 为主因、最后一条错误作附注（如 `budget_time; last: Error code: 503 ...`），再看 `last_error`。`status=running` 的 trace 不显示，只在页脚计入 `running_skipped`。对 `stop_reason=final` 会继续读 `steps.jsonl` 的 `decision_source` 和 manifest 的 `parser`，区分"模型正常给出最终答复"、"模型工具调用文本无法解析"和"DSML 标记泄漏导致结束"。
 
 ## 9. 开第二个组
 

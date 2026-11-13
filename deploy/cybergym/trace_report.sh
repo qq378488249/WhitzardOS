@@ -58,26 +58,57 @@ def task_id_of(name, manifest, summary, task_result):
     return name
 
 
-def failure_reason(summary):
+def failure_reason(summary, stop):
+    """Prefer the failure that actually stopped the run.
+
+    failure_report keeps both recovered (`decision=continue`) and terminal
+    (`decision=stop`) failures. Showing the last entry alone can blame a
+    retried 503 for a run that really ended on budget_time, so terminal
+    failures win; if every recorded failure was recovered, the stop reason is
+    the primary cause and the last error becomes a hint.
+    """
+    failures = []
     report = summary.get("failure_report")
     if isinstance(report, dict):
-        failures = report.get("failures")
-        if isinstance(failures, list) and failures:
-            last = failures[-1]
-            if isinstance(last, dict):
-                parts = [
-                    last.get("category"),
-                    last.get("phase"),
-                    last.get("message"),
-                ]
-                text = " / ".join(str(part) for part in parts if part)
-                if text:
-                    return text
-    last_error = summary.get("last_error")
-    if isinstance(last_error, dict):
-        message = last_error.get("error_message")
-        if message:
-            return str(message)
+        raw_failures = report.get("failures")
+        if isinstance(raw_failures, list):
+            failures = [item for item in raw_failures if isinstance(item, dict)]
+
+    def describe(failure):
+        parts = [
+            failure.get("category"),
+            failure.get("phase"),
+            failure.get("message"),
+        ]
+        return " / ".join(str(part) for part in parts if part)
+
+    def describe_short(failure):
+        message = str(failure.get("message") or "").strip()
+        return message or str(failure.get("category") or "").strip()
+
+    terminal = [
+        failure
+        for failure in failures
+        if str(failure.get("decision") or "").lower() == "stop"
+    ]
+    if terminal:
+        text = describe(terminal[-1])
+        if text:
+            return text
+
+    last_text = ""
+    if failures:
+        last_text = describe_short(failures[-1])
+    if not last_text:
+        last_error = summary.get("last_error")
+        if isinstance(last_error, dict) and last_error.get("error_message"):
+            last_text = str(last_error["error_message"])
+
+    stop_text = str(stop or "").strip()
+    if last_text:
+        if stop_text and stop_text not in ("unknown", "final", "-"):
+            return f"{stop_text}; last: {last_text}"
+        return last_text
     return ""
 
 
@@ -188,7 +219,7 @@ for name in sorted(os.listdir(root)):
     except (TypeError, ValueError):
         steps_value = 0
 
-    reason = failure_reason(summary)
+    reason = failure_reason(summary, stop)
     if str(stop) == "final":
         reason = final_reason(path, summary)
     elif success:
@@ -212,14 +243,14 @@ if not rows:
     sys.exit(0)
 
 header = (
-    f"{'TASK':<18} {'RESULT':<6} {'STOP':<14} {'TIME':>8} {'STEPS':>6}  REASON"
+    f"{'TASK':<18} {'RESULT':<6} {'STOP':<20} {'TIME':>8} {'STEPS':>6}  REASON"
 )
 print(header)
 print("-" * len(header))
 for task_id, result, stop, elapsed, steps, reason in rows:
     print(
-        f"{clip(task_id, 18):<18} {result:<6} {clip(stop, 14):<14} "
-        f"{elapsed:>7.1f}s {steps:>6}  {clip(reason, 60)}"
+        f"{clip(task_id, 18):<18} {result:<6} {clip(stop, 20):<20} "
+        f"{elapsed:>7.1f}s {steps:>6}  {clip(reason, 70)}"
     )
 print("-" * len(header))
 ok = sum(1 for row in rows if row[1] == "ok")
