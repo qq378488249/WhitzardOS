@@ -11,6 +11,7 @@
 | `compose.build.yaml` | 可选覆盖：从源码重建 runner 镜像 |
 | `compose-preflight.sh` | 启动前自检 |
 | `score.sh` | 在 runner 镜像里运行 server 判分脚本 |
+| `report.sh` | 手动查看某个批次的简洁每任务报告（默认读 `*.report.jsonl`） |
 | `Dockerfile.runner` | runner 镜像构建文件 |
 | `Dockerfile.runner.dockerignore` | 构建上下文排除规则 |
 | `docker-entrypoint.sh` | 容器入口，校验 `.env` 并启动 launcher |
@@ -22,7 +23,7 @@
 ```bash
 # 在 deploy/ 目录
 docker load -i images/cage-claude-code-cyberdebug.tar.gz
-docker load -i images/qitos-cybergym-runner-1.0.4.tar.gz
+docker load -i images/qitos-cybergym-runner-1.0.5.tar.gz
 
 cp cybergym/.env.compose.example cybergym/.env
 chmod 600 cybergym/.env

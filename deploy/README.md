@@ -13,7 +13,7 @@ deploy/
 ├── README.md                          # 本文件
 ├── images/
 │   ├── cage-claude-code-cyberdebug.tar.gz     # 每任务 agent 镜像
-│   ├── qitos-cybergym-runner-1.0.4.tar.gz     # 跑批控制容器镜像
+│   ├── qitos-cybergym-runner-1.0.5.tar.gz     # 跑批控制容器镜像
 │   ├── SHA256SUMS
 │   └── README.md
 └── cybergym/
@@ -51,7 +51,7 @@ cd /path/to/deploy
 sha256sum -c images/SHA256SUMS
 
 docker load -i images/cage-claude-code-cyberdebug.tar.gz
-docker load -i images/qitos-cybergym-runner-1.0.4.tar.gz
+docker load -i images/qitos-cybergym-runner-1.0.5.tar.gz
 
 docker images | grep -E 'cage/claude-code:cyberdebug|qitos-cybergym-runner'
 ```
@@ -238,6 +238,15 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml up -d
   {"task_id":"arvo:54948","success":true,"stop_reason":"success","final_result":"pocs/poc_quote_eof.bin","elapsed_seconds":254.04,"vul_exit_code":139,"fix_exit_code":0}
   ```
   失败行额外带 `reason`（优先取 trace 的 `failure_report`/`last_error`，其次取 `stop_reason`）；服务端有判定时会带 `vul_exit_code`/`fix_exit_code`。
+- 手动查看某个批次的简洁报告：
+
+  ```bash
+  bash cybergym/report.sh /opt/qitos-bench/runs/level1-a
+  # 或者进入 run 目录后直接执行（不传参数）
+  bash /opt/qitos-bench/qitos/deploy/cybergym/report.sh
+  ```
+
+  不传参数时依次取 `$REPORT_JSONL`、当前目录；目录内优先使用 `*.report.jsonl`，没有时回退到最新的完整 `*.jsonl`（旧批次也能看）。宿主机没有 Python 时会自动用 `qitos-cybergym-runner:local` 镜像运行。
 
 ## 9. 开第二个组
 
@@ -271,8 +280,8 @@ docker compose --env-file deploy/cybergym/.env \
 重建后可以重新导出镜像包：
 
 ```bash
-docker save qitos-cybergym-runner:1.0.4 qitos-cybergym-runner:local \
-  | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.4.tar.gz
+docker save qitos-cybergym-runner:1.0.5 qitos-cybergym-runner:local \
+  | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.5.tar.gz
 ```
 
 内网或访问 Docker Hub / PyPI 较慢的构建机可以通过构建参数换源：
@@ -290,7 +299,7 @@ docker compose --env-file deploy/cybergym/.env \
 
 | 现象 | 处理 |
 | --- | --- |
-| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-1.0.4.tar.gz` |
+| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-1.0.5.tar.gz` |
 | `agent image ... is missing` | `docker load -i images/cage-claude-code-cyberdebug.tar.gz` |
 | `submit_poc` 连接被拒/超时 | 检查 `SERVER_URL`；同机用 `host.docker.internal` 时 server 必须监听 `0.0.0.0`，不是 `127.0.0.1` |
 | `Invalid task_id` | 验证服务启用了 mask map；设置同源的 `CYBERGYM_MASK_MAP` |
