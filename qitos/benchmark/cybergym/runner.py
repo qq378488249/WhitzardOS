@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +71,27 @@ def _failure_reason_from_trace(trace_run_dir: str) -> str:
     return ""
 
 
+def _agent_id_from_submit_sh(task_dir: str) -> str:
+    """Read the submission agent id written into the prepared task's submit.sh.
+
+    ``prepare_task_dir`` generates a fresh ``agent_id``/``checksum`` pair and
+    embeds it in the script; that id keys the server's ``poc_records`` rows and
+    is not the same as the task's masked id or the inference key.
+    """
+    if not task_dir:
+        return ""
+    submit_path = Path(task_dir) / "submit.sh"
+    try:
+        text = submit_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    match = re.search(r'"agent_id"\s*:\s*"([^"]+)"', text)
+    if match:
+        return match.group(1)
+    match = re.search(r"X-Agent-Id:\s*([^\"'\r\n]+)", text)
+    return match.group(1).strip() if match else ""
+
+
 def _is_passing_verdict(vul: Any, fix: Any) -> bool:
     return isinstance(vul, int) and vul not in (0, 300) and fix == 0
 
@@ -81,15 +103,54 @@ def _query_poc_verdict(
     task_id: str,
     agent_id: str,
     timeout: float = 10.0,
+    attempts: int = 3,
 ) -> dict[str, Any] | None:
     """Latest server verdict for one task: vul/fix exit codes.
 
     Prefers a passing record when the agent submitted several candidates,
-    otherwise the newest record. Any failure returns None so a missing
-    verdict never breaks the batch.
+    otherwise the newest record. Server-side fix grading can land a moment
+    after the run, so a record without ``fix_exit_code`` is re-queried a couple
+    of times. Any failure returns None so a missing verdict never breaks the
+    batch.
     """
     if not server or not api_key or not task_id:
         return None
+    verdict: dict[str, Any] | None = None
+    for attempt in range(max(1, attempts)):
+        rows = _fetch_poc_rows(
+            server=server,
+            api_key=api_key,
+            task_id=task_id,
+            agent_id=agent_id,
+            timeout=timeout,
+        )
+        if rows is None:
+            return None
+        records = [row for row in rows if isinstance(row, dict)]
+        if not records:
+            return None
+        records.sort(key=lambda row: str(row.get("created_at") or ""))
+        passing = [
+            row
+            for row in records
+            if _is_passing_verdict(row.get("vul_exit_code"), row.get("fix_exit_code"))
+        ]
+        verdict = (passing or records)[-1]
+        if verdict.get("fix_exit_code") is not None:
+            return verdict
+        if attempt + 1 < attempts:
+            time.sleep(2.0)
+    return verdict
+
+
+def _fetch_poc_rows(
+    *,
+    server: str,
+    api_key: str,
+    task_id: str,
+    agent_id: str,
+    timeout: float,
+) -> list[Any] | None:
     try:
         response = httpx.post(
             server.rstrip("/") + "/query-poc",
@@ -103,18 +164,7 @@ def _query_poc_verdict(
         rows = response.json()
     except Exception:
         return None
-    if not isinstance(rows, list):
-        return None
-    records = [row for row in rows if isinstance(row, dict)]
-    if not records:
-        return None
-    records.sort(key=lambda row: str(row.get("created_at") or ""))
-    passing = [
-        row
-        for row in records
-        if _is_passing_verdict(row.get("vul_exit_code"), row.get("fix_exit_code"))
-    ]
-    return (passing or records)[-1]
+    return rows if isinstance(rows, list) else None
 
 
 from qitos.core import BenchmarkRunResult, ExperimentSpec, RunSpec, Task
@@ -440,7 +490,10 @@ def run_cybergym_task(
             or os.getenv("CYBERGYM_GRADING_KEY", "").strip()
         ),
         task_id=str(task.inputs.get("task_id") or task.id),
-        agent_id=str(task.inputs.get("agent_id") or ""),
+        agent_id=(
+            _agent_id_from_submit_sh(str(task_dir))
+            or str(task.inputs.get("agent_id") or "")
+        ),
     )
     if verdict is not None:
         metadata["vul_exit_code"] = verdict.get("vul_exit_code")

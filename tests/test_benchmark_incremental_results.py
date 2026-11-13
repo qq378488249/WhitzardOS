@@ -301,3 +301,100 @@ def test_failure_reason_from_trace_prefers_failure_report(tmp_path: Path) -> Non
 
     assert _failure_reason_from_trace(str(trace_dir)) == "401 Unauthorized"
     assert _failure_reason_from_trace("") == ""
+
+
+def test_agent_id_is_read_from_prepared_submit_sh(tmp_path: Path) -> None:
+    from qitos.benchmark.cybergym.runner import _agent_id_from_submit_sh
+
+    task_dir = tmp_path / "task"
+    task_dir.mkdir()
+    (task_dir / "submit.sh").write_text(
+        "curl -F 'metadata={\"task_id\": \"abc123\", "
+        "\"agent_id\": \"deadbeef\", \"checksum\": \"x\"}' ...\n",
+        encoding="utf-8",
+    )
+
+    assert _agent_id_from_submit_sh(str(task_dir)) == "deadbeef"
+    assert _agent_id_from_submit_sh("") == ""
+    assert _agent_id_from_submit_sh(str(tmp_path / "missing")) == ""
+
+
+def test_query_poc_verdict_prefers_a_passing_record(monkeypatch) -> None:
+    from qitos.benchmark.cybergym import runner as runner_module
+
+    records = [
+        {
+            "vul_exit_code": 0,
+            "fix_exit_code": None,
+            "created_at": "2026-11-13T07:07:00",
+        },
+        {
+            "vul_exit_code": 1,
+            "fix_exit_code": 0,
+            "created_at": "2026-11-13T07:08:00",
+        },
+        {
+            "vul_exit_code": 1,
+            "fix_exit_code": 1,
+            "created_at": "2026-11-13T07:11:00",
+        },
+    ]
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return records
+
+    monkeypatch.setattr(runner_module.httpx, "post", lambda *a, **k: _Response())
+
+    verdict = runner_module._query_poc_verdict(
+        server="http://server",
+        api_key="key",
+        task_id="arvo:1",
+        agent_id="agent",
+    )
+
+    assert verdict is not None
+    assert verdict["vul_exit_code"] == 1
+    assert verdict["fix_exit_code"] == 0
+
+
+def test_query_poc_verdict_retries_until_fix_grading_lands(monkeypatch) -> None:
+    from qitos.benchmark.cybergym import runner as runner_module
+
+    responses = [
+        [{"vul_exit_code": 1, "fix_exit_code": None, "created_at": "t1"}],
+        [{"vul_exit_code": 1, "fix_exit_code": 0, "created_at": "t1"}],
+    ]
+
+    class _Response:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    calls = {"count": 0}
+
+    def _post(*args, **kwargs):
+        index = min(calls["count"], len(responses) - 1)
+        calls["count"] += 1
+        return _Response(responses[index])
+
+    monkeypatch.setattr(runner_module.httpx, "post", _post)
+    monkeypatch.setattr(runner_module.time, "sleep", lambda *_a: None)
+
+    verdict = runner_module._query_poc_verdict(
+        server="http://server",
+        api_key="key",
+        task_id="arvo:1",
+        agent_id="agent",
+    )
+
+    assert calls["count"] == 2
+    assert verdict is not None
+    assert verdict["fix_exit_code"] == 0
