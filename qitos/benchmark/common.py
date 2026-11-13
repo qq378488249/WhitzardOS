@@ -71,6 +71,45 @@ def append_benchmark_result(path: str | Path, row: BenchmarkRunResult) -> Path:
     return target
 
 
+def append_task_report(path: str | Path, row: BenchmarkRunResult) -> Path:
+    """Append a compact one-line task report: identifier, outcome, and time.
+
+    Written alongside the full result row once per finished job, so operators
+    can tail the file and see each task's final result and elapsed time
+    without reading the full trace row.
+    """
+    target = Path(path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    final_result = row.prediction
+    if final_result is not None and not isinstance(
+        final_result, (str, int, float, bool)
+    ):
+        final_result = json.dumps(_redact_dict(final_result), ensure_ascii=False)
+    payload = {
+        "task_id": row.task_id,
+        "success": bool(row.success),
+        "stop_reason": row.stop_reason,
+        "final_result": final_result,
+        "elapsed_seconds": round(float(row.latency_seconds or 0.0), 2),
+    }
+    if not row.success:
+        payload["reason"] = (
+            str(row.metadata.get("failure_reason") or "").strip()
+            or str(row.stop_reason or "").strip()
+            or "unknown"
+        )
+    for key in ("vul_exit_code", "fix_exit_code"):
+        value = row.metadata.get(key)
+        if value is not None:
+            payload[key] = value
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    with target.open("a", encoding="utf-8") as f:
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
+    return target
+
+
 def read_benchmark_results(path: str | Path) -> list[BenchmarkRunResult]:
     rows: list[BenchmarkRunResult] = []
     target = Path(path).expanduser().resolve()

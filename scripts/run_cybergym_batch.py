@@ -47,6 +47,7 @@ def main() -> int:
     parser.add_argument("--max-runtime-seconds", type=float, default=180.0)
     parser.add_argument("--trace-prefix", default="qitos_cybergym_batch")
     parser.add_argument("--output-jsonl", default="")
+    parser.add_argument("--report-jsonl", default="")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
@@ -100,6 +101,11 @@ def main() -> int:
         if str(args.output_jsonl).strip()
         else out_root / f"cybergym_{args.difficulty}_first{len(jobs)}_conc{int(args.concurrency)}.jsonl"
     )
+    report_path = (
+        Path(args.report_jsonl).expanduser().resolve()
+        if str(args.report_jsonl).strip()
+        else output_path.with_name(f"{output_path.stem}.report.jsonl")
+    )
 
     rows = execute_example_jobs(
         jobs=jobs,
@@ -113,9 +119,11 @@ def main() -> int:
         experiment_spec=experiment_spec,
         concurrency=max(1, int(args.concurrency)),
         resume=bool(args.resume),
+        report_path=report_path,
     )
     print_benchmark_summary(rows)
     print(f"OUTPUT_JSONL={output_path}")
+    print(f"REPORT_JSONL={report_path}")
     return 0
 
 

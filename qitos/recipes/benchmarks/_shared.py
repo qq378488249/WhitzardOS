@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from qitos.benchmark.common import (
     append_benchmark_result,
+    append_task_report,
     build_experiment_spec,
     evaluate_benchmark_results,
     read_benchmark_results,
@@ -76,9 +77,13 @@ def execute_example_jobs(
     experiment_spec: ExperimentSpec,
     concurrency: int = 1,
     resume: bool = False,
+    report_path: str | Path | None = None,
 ) -> List[BenchmarkRunResult]:
     target = Path(output_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
+    report_target = (
+        Path(report_path).expanduser().resolve() if report_path is not None else None
+    )
     job_items = list(jobs)
     if resume:
         existing_rows = (
@@ -89,6 +94,15 @@ def execute_example_jobs(
         existing_rows = []
         with target.open("w", encoding="utf-8"):
             pass
+    if report_target is not None:
+        report_target.parent.mkdir(parents=True, exist_ok=True)
+        if not resume:
+            with report_target.open("w", encoding="utf-8"):
+                pass
+        elif not report_target.exists():
+            # Rebuild the compact report from rows already on disk.
+            for row in existing_rows:
+                append_task_report(report_target, row)
     done = {
         str(row.metadata.get("job_key", "")).strip() or str(row.task_id).strip()
         for row in existing_rows
@@ -108,6 +122,8 @@ def execute_example_jobs(
         # that already completed; --resume then skips exactly those jobs.
         with write_lock:
             append_benchmark_result(target, row)
+            if report_target is not None:
+                append_task_report(report_target, row)
             all_rows.append(row)
         return row
 

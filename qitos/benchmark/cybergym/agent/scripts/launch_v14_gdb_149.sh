@@ -70,6 +70,7 @@ GROUP_NAME="${GROUP_NAME:-$(basename "$RUN_ROOT")}"
 TMUX_SESSION="${TMUX_SESSION:-jcy-${GROUP_NAME}}"
 TRACE_PREFIX="${TRACE_PREFIX:-qitos_${GROUP_NAME}_glm-51}"
 OUTPUT_JSONL="${OUTPUT_JSONL:-${RUN_ROOT}/cybergym_${GROUP_NAME}.jsonl}"
+REPORT_JSONL="${REPORT_JSONL:-${RUN_ROOT}/cybergym_${GROUP_NAME}.report.jsonl}"
 # --run may target an external verification server via SERVER_URL. Only derive
 # it from SERVER_HOST/SERVER_PORT when the caller did not provide one.
 if [[ -z "${SERVER_URL:-}" && -n "${SERVER_PORT:-}" ]]; then
@@ -136,6 +137,7 @@ write_runtime_config() {
     printf 'TMUX_SESSION=%q\n' "$TMUX_SESSION"
     printf 'TRACE_PREFIX=%q\n' "$TRACE_PREFIX"
     printf 'OUTPUT_JSONL=%q\n' "$OUTPUT_JSONL"
+    printf 'REPORT_JSONL=%q\n' "$REPORT_JSONL"
   } > "$RUNTIME_CONFIG"
   chmod 600 "$RUNTIME_CONFIG"
 }
@@ -221,6 +223,7 @@ run_batch() {
     --max-runtime-seconds "$MAX_RUNTIME_SECONDS" \
     --trace-prefix "$TRACE_PREFIX" \
     --output-jsonl "$OUTPUT_JSONL" \
+    --report-jsonl "$REPORT_JSONL" \
     --resume &
   batch_pid=$!
 

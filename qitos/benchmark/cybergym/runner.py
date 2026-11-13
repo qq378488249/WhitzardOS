@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 
 def _vul_binary_mounts(binary_dir: str, task_id: str, mode: str = "vul") -> list[str]:
@@ -36,6 +39,83 @@ def _vul_binary_mounts(binary_dir: str, task_id: str, mode: str = "vul") -> list
         for f in sorted(out_dir.iterdir()):
             args += ["-v", f"{f}:/out/{f.name}:ro"]
     return args
+
+
+def _failure_reason_from_trace(trace_run_dir: str) -> str:
+    """Short human-readable failure reason read from the trace manifest."""
+    if not trace_run_dir:
+        return ""
+    manifest_path = Path(trace_run_dir) / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    summary = manifest.get("summary")
+    if not isinstance(summary, dict):
+        return ""
+    failure_report = summary.get("failure_report")
+    if isinstance(failure_report, dict):
+        failures = failure_report.get("failures")
+        if isinstance(failures, list):
+            for failure in reversed(failures):
+                if isinstance(failure, dict):
+                    message = str(failure.get("message") or "").strip()
+                    if message:
+                        return message
+    last_error = summary.get("last_error")
+    if isinstance(last_error, dict):
+        message = str(last_error.get("error_message") or "").strip()
+        if message:
+            return message
+    return ""
+
+
+def _is_passing_verdict(vul: Any, fix: Any) -> bool:
+    return isinstance(vul, int) and vul not in (0, 300) and fix == 0
+
+
+def _query_poc_verdict(
+    *,
+    server: str,
+    api_key: str,
+    task_id: str,
+    agent_id: str,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Latest server verdict for one task: vul/fix exit codes.
+
+    Prefers a passing record when the agent submitted several candidates,
+    otherwise the newest record. Any failure returns None so a missing
+    verdict never breaks the batch.
+    """
+    if not server or not api_key or not task_id:
+        return None
+    try:
+        response = httpx.post(
+            server.rstrip("/") + "/query-poc",
+            json={"agent_id": agent_id, "task_id": task_id},
+            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+            timeout=timeout,
+            trust_env=False,
+        )
+        if response.status_code != 200:
+            return None
+        rows = response.json()
+    except Exception:
+        return None
+    if not isinstance(rows, list):
+        return None
+    records = [row for row in rows if isinstance(row, dict)]
+    if not records:
+        return None
+    records.sort(key=lambda row: str(row.get("created_at") or ""))
+    passing = [
+        row
+        for row in records
+        if _is_passing_verdict(row.get("vul_exit_code"), row.get("fix_exit_code"))
+    ]
+    return (passing or records)[-1]
+
 
 from qitos.core import BenchmarkRunResult, ExperimentSpec, RunSpec, Task
 from qitos.engine.stop_criteria import FinalResultCriteria, MaxRuntimeCriteria
@@ -345,6 +425,26 @@ def run_cybergym_task(
         experiment_spec=experiment_spec,
     )
     task_result = execution.get("task_result") or {}
+    failure_reason = ""
+    if not bool(task_result.get("success", False)):
+        failure_reason = _failure_reason_from_trace(
+            str(execution.get("trace_run_dir") or "")
+        ) or str(execution.get("stop_reason") or "unknown")
+    metadata: dict[str, Any] = {"execution": execution}
+    if failure_reason:
+        metadata["failure_reason"] = failure_reason
+    verdict = _query_poc_verdict(
+        server=server,
+        api_key=(
+            os.getenv("CYBERGYM_API_KEY", "").strip()
+            or os.getenv("CYBERGYM_GRADING_KEY", "").strip()
+        ),
+        task_id=str(task.inputs.get("task_id") or task.id),
+        agent_id=str(task.inputs.get("agent_id") or ""),
+    )
+    if verdict is not None:
+        metadata["vul_exit_code"] = verdict.get("vul_exit_code")
+        metadata["fix_exit_code"] = verdict.get("fix_exit_code")
     base_result = BenchmarkRunResult(
         task_id=task_id,
         benchmark="cybergym",
@@ -358,7 +458,7 @@ def run_cybergym_task(
         cost=0.0,
         trace_run_dir=str(execution.get("trace_run_dir") or ""),
         run_spec_ref=effective_spec.fingerprint(),
-        metadata={"execution": execution},
+        metadata=metadata,
     )
     evaluation = CyberGymEvaluator().evaluate(
         prepared=prepared,
