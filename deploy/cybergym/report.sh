@@ -36,7 +36,16 @@ if [[ -d "$TARGET" ]]; then
     )
   fi
   if [[ ${#candidates[@]} -eq 0 ]]; then
-    echo "no *.report.jsonl or *.jsonl found under: $TARGET" >&2
+    mapfile -t subdirs < <(
+      find "$TARGET" -mindepth 1 -maxdepth 1 -type d -printf '%p\n' 2>/dev/null | sort
+    )
+    if [[ ${#subdirs[@]} -gt 0 ]]; then
+      echo "no report files directly under: $TARGET" >&2
+      echo "batches below it (pass one of these):" >&2
+      printf '  %s\n' "${subdirs[@]}" >&2
+    else
+      echo "no *.report.jsonl or *.jsonl found under: $TARGET" >&2
+    fi
     exit 1
   fi
   if [[ ${#candidates[@]} -gt 1 ]]; then
@@ -54,6 +63,7 @@ fi
 parse() {
   "$@" - "$TARGET" <<'PY'
 import json
+import re
 import sys
 
 path = sys.argv[1]
@@ -77,6 +87,15 @@ if not rows:
 def clip(value, width):
     text = "" if value is None else str(value)
     return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def summarize_result(value):
+    """Show a PoC path when the final result is a prose answer."""
+    text = "" if value is None else str(value)
+    match = re.search(r"pocs/[\w./-]+", text)
+    if match:
+        return match.group(0)
+    return " ".join(text.split())
 
 
 def pick(row, key, default=None):
@@ -124,7 +143,7 @@ for row in rows:
         f"{'ok' if success else 'FAIL':<6} "
         f"{clip(stop, 13):<13} "
         f"{elapsed_value:>7.1f}s "
-        f"{clip(final, 24):<24} "
+        f"{clip(summarize_result(final), 24):<24} "
         f"{'-' if vul is None else clip(vul, 4):>4} "
         f"{'-' if fix is None else clip(fix, 4):>4}  "
         f"{clip(reason, 48) if not success else ''}"
