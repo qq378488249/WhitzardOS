@@ -116,10 +116,9 @@ for row in rows:
         continue
     compact = "elapsed_seconds" in row
     success = bool(row.get("success"))
-    success_count += int(success)
     stop = pick(row, "stop_reason", "-")
     elapsed = pick(row, "elapsed_seconds" if compact else "latency_seconds", 0)
-    final = pick(row, "final_result" if compact else "prediction")
+    final = row.get("final_result") if "final_result" in row else row.get("prediction")
     meta = row.get("metadata")
     if not isinstance(meta, dict):
         meta = {}
@@ -132,8 +131,17 @@ for row in rows:
     reason = row.get("reason") or meta.get("failure_reason") or ""
     if not isinstance(reason, str):
         reason = str(reason)
+    # The engine counts `final` as a successful stop reason. In CyberGym a
+    # self-declared finish only counts when the server verdict passes
+    # (vul crashes, fix clean); otherwise show it as a miss.
+    passing = isinstance(vul, int) and vul not in (0, 300) and fix == 0
+    if str(stop) == "final" and not passing:
+        success = False
+        if not reason:
+            reason = "final_without_submit"
     if not success and not reason:
         reason = str(stop)
+    success_count += int(success)
     try:
         elapsed_value = float(elapsed or 0)
     except (TypeError, ValueError):
