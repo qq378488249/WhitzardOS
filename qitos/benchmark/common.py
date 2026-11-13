@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from qitos.core.spec import BenchmarkRunResult, ExperimentSpec, RunSpec
 from qitos.tracing.config import _redact_dict
+
+_logger = logging.getLogger(__name__)
 
 
 def build_experiment_spec(
@@ -49,16 +53,46 @@ def write_benchmark_results(
     return target
 
 
+def append_benchmark_result(path: str | Path, row: BenchmarkRunResult) -> Path:
+    """Append one result row and flush it to disk immediately.
+
+    Batch runners call this as each job finishes, so a crash keeps every
+    result that already completed. The row is a single JSON line, executed
+    under the caller's lock; concurrent writers to the same file are not
+    supported.
+    """
+    target = Path(path).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(_redact_dict(row.to_dict()), ensure_ascii=False) + "\n"
+    with target.open("a", encoding="utf-8") as f:
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
+    return target
+
+
 def read_benchmark_results(path: str | Path) -> list[BenchmarkRunResult]:
     rows: list[BenchmarkRunResult] = []
     target = Path(path).expanduser().resolve()
     if not target.exists():
         return rows
-    for line in target.read_text(encoding="utf-8").splitlines():
+    lines = target.read_text(encoding="utf-8").splitlines()
+    for index, line in enumerate(lines):
         text = line.strip()
         if not text:
             continue
-        rows.append(BenchmarkRunResult.from_value(json.loads(text)))
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            # A crash between write and fsync can leave a partial final line.
+            # Keep the fully written rows before it instead of failing resume.
+            if index == len(lines) - 1:
+                _logger.warning(
+                    "Ignoring truncated trailing result line in %s", target
+                )
+                break
+            raise
+        rows.append(BenchmarkRunResult.from_value(payload))
     return rows
 
 

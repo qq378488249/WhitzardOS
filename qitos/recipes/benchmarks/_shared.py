@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from qitos.benchmark.common import (
+    append_benchmark_result,
     build_experiment_spec,
     evaluate_benchmark_results,
     read_benchmark_results,
-    write_benchmark_results,
 )
 from qitos.core.spec import BenchmarkRunResult, ExperimentSpec, RunSpec
 
@@ -79,7 +80,15 @@ def execute_example_jobs(
     target = Path(output_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     job_items = list(jobs)
-    existing_rows = read_benchmark_results(target) if resume and target.exists() else []
+    if resume:
+        existing_rows = (
+            read_benchmark_results(target) if target.exists() else []
+        )
+    else:
+        # A fresh run owns the file, matching the previous overwrite behavior.
+        existing_rows = []
+        with target.open("w", encoding="utf-8"):
+            pass
     done = {
         str(row.metadata.get("job_key", "")).strip() or str(row.task_id).strip()
         for row in existing_rows
@@ -90,27 +99,28 @@ def execute_example_jobs(
         if str(item.get("job_key", "") or item.get("task_id", "")).strip() not in done
     ]
 
-    created: List[BenchmarkRunResult] = []
+    all_rows: List[BenchmarkRunResult] = list(existing_rows)
+    write_lock = threading.Lock()
+
+    def _record(item: Dict[str, Any]) -> BenchmarkRunResult:
+        row = _run_example_job(runner, item, run_spec, experiment_spec)
+        # Persist each finished job immediately so a crash keeps every row
+        # that already completed; --resume then skips exactly those jobs.
+        with write_lock:
+            append_benchmark_result(target, row)
+            all_rows.append(row)
+        return row
+
     if int(concurrency) <= 1:
         for item in pending:
-            created.append(_run_example_job(runner, item, run_spec, experiment_spec))
+            _record(item)
     else:
         with ThreadPoolExecutor(max_workers=max(1, int(concurrency))) as pool:
-            futures = [
-                pool.submit(
-                    _run_example_job,
-                    runner,
-                    item,
-                    run_spec,
-                    experiment_spec,
-                )
-                for item in pending
-            ]
+            futures = [pool.submit(_record, item) for item in pending]
             for future in as_completed(futures):
-                created.append(future.result())
+                # Raises the first failure; already-finished jobs are on disk.
+                future.result()
 
-    all_rows = list(existing_rows) + created
-    write_benchmark_results(target, all_rows)
     return all_rows
 
 
