@@ -18,6 +18,7 @@ QitOS 主仓库是小而清晰的核心框架。产品级 / 展示级应用会�
 
 ## 最新进展
 
+- **LLM 重试策略设计文档**：新增 `docs/superpowers/specs/2026-11-13-llm-call-retry-strategy-design.md`，记录统一的模型调用重试设计（调用边界 `LLMCallError` 包装、可恢复分类、连续失败上限、渐进式退避与上下文溢出处理）。
 - **中途 401 / 网关 5xx / 其它 LLM 错误不再终止运行**：模型网关返回 `401`（密钥被轮换/过期、网关重载凭证）现在会像 stream timeout 一样重试，而不是立刻以 `unrecoverable_error` 结束任务；网关 `502`/`503`/`504`（`ServiceUnavailableError`、`gateway timeout`）同样重试——litellm 的 `ServiceUnavailableError` 不含空格，之前匹配不到 `service unavailable`。更进一步，模型调用抛出的任何异常都会被包装成可恢复的模型错误，新网关错误格式不再需要补匹配规则。重试沿用连续恢复上限（`QITOS_MAX_RECOVERIES`，默认 100），并在每次重试前等待渐进式间隔（`QITOS_RECOVERY_BACKOFF` 基础 1 秒，逐次翻倍，上限 `QITOS_RECOVERY_BACKOFF_MAX` 默认 30 秒）；密钥彻底失效时仍会在重试耗尽后停止。
 - **CyberGym 跑批服务器部署**：`deploy/` 现在是自包含部署包，包含两份预构建镜像、systemd 单元、由 `.env` 驱动的单服务 Docker Compose 跑批（验证服务单独启动，通过 `SERVER_URL` 指定）、启动前自检脚本和 server 判分脚本（`scripts/cybergym_server_score.py`，可用 `deploy/cybergym/score.sh` 在镜像内运行）；[服务器部署指南](https://qitor.mintlify.app/zh/guides/cybergym-server-deployment)覆盖 Docker 镜像准备、打分 key、成绩查询、资源估算、续跑语义和分机部署。
 - **支持 MiMo 家族**：`mimo-v2.6-flash` / `mimo-v2.6-pro` 现在通过内建的 `mimo` 家族预设解析（多动作 JSON 通道、256k 上下文），不再报 `Unknown QitOS model family preset`；CyberGym 运行会为 MiMo 与 DeepSeek 推理模型默认提供 64k 输出预算和 30 分钟请求超时。

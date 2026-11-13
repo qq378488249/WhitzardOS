@@ -19,6 +19,7 @@ How to update:
 
 ### Added
 
+- Added a development design document for the unified LLM call retry strategy (`docs/superpowers/specs/2026-11-13-llm-call-retry-strategy-design.md`), covering provider-call wrapping (`LLMCallError`), failure classification, consecutive recovery budgeting, progressive backoff, context-overflow handling, observability, and configuration.
 - Added a `PIP_INDEX_URL` build argument to `deploy/cybergym/Dockerfile.runner` (also forwarded by `compose.build.yaml`), so build hosts behind a slow PyPI CDN can use a mirror. The runner image is now shipped as the versioned `deploy/images/qitos-cybergym-runner-1.0.2.tar.gz`, carrying both `qitos-cybergym-runner:1.0.2` and `qitos-cybergym-runner:local` tags.
 - Added `deploy/cybergym/score.sh`, which runs the server-verdict scorer inside the runner image, so a deployed host needs only Docker (no host Python). It reads `SERVER_URL`, `TASK_FILE`, and `CYBERGYM_GRADING_KEY` from `.env` and queries the live `/query-poc` API.
 - Added `scripts/cybergym_server_score.py`, a server-verdict scorer for CyberGym. It reads either the verification server's `poc.db` or its live `POST /query-poc` API (`--server-url` + `--api-key`) when the database file lags behind recent submissions, applies the fix-differential rule (`vul_exit_code` not `0`/`None`/`300` and `fix_exit_code == 0`), prints per-task PASS/FAIL/MISS, supports `--task-file` and `--since` to scope one run, and avoids the trace-based script's overcount of stale or non-verifying traces.
