@@ -87,6 +87,11 @@ CANDIDATE_REQUIRED_REMINDER_TEXT = (
     "a concrete raw-input PoC under `pocs/`, then submit it. Use at most one targeted "
     "read/grep only if a specific blocking detail is missing."
 )
+PARSER_REPAIR_REMINDER_TEXT = (
+    "Your previous response was discarded: it was not a valid tool call or JSON "
+    "decision. Re-issue it as a real tool call (or a valid JSON decision) and do "
+    "not emit provider-specific markup such as `<｜DSML｜...>`."
+)
 
 # ---------------------------------------------------------------------------
 # PoC output

@@ -567,6 +567,7 @@ class CyberGymAgent(StaticAnalysisRuntimeMixin, StateInitMixin, TaskAnalysisMixi
             self._deepen_sink_analysis(state)
 
         self._update_candidate_requirement_from_decision(state, decision)
+        self._maybe_set_parser_repair_reminder(state, decision)
         if getattr(state, "stop_reason", ""):
             if state.is_verified() and self.memory:
                 self._save_success_memory(state)

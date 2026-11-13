@@ -21,6 +21,7 @@ from ..core.constants import (
     REINVESTIGATE_AFTER_SUBMITS,
     POC_OUTPUT_DIR,
     LOOP_REMINDER_TEXT,
+    PARSER_REPAIR_REMINDER_TEXT,
     FAILURE_REFLECTION_ACK_KEY,
     REPEATED_FAILURE_REFLECTION_THRESHOLD,
     REFLECTION_ATTEMPT_COOLDOWN,
@@ -98,6 +99,21 @@ class ValidationMixin:
         state.pending_reminder = "\n".join(existing_lines)
         state.pending_reminder_signature = "|".join(existing_sigs)
         state.reminder_cooldowns[signature] = current_step + 8
+
+    @staticmethod
+    def _maybe_set_parser_repair_reminder(state: CyberGymState, decision: Any) -> None:
+        """Ask the model to re-issue output the parser rejected.
+
+        One-shot: the renderer consumes ``pending_reminder`` on the next prompt
+        and the following reduce clears it, so a failed parse nudges exactly
+        the next model call without touching the system prompt.
+        """
+        meta = getattr(decision, "meta", None)
+        if not isinstance(meta, dict) or not meta.get("parser_error"):
+            return
+        if str(getattr(state, "pending_reminder", "") or "").strip():
+            return
+        state.pending_reminder = PARSER_REPAIR_REMINDER_TEXT
 
     # ------------------------------------------------------------------
     # Read budget / reinvestigation / failure reflection
@@ -516,9 +532,10 @@ class ValidationMixin:
             return False
         if not any(marker in text for marker in ("repo-vul/", "repo-vul", "src/")):
             return False
-        # Exception: if the Python command writes to pocs/, it's PoC
-        # construction, not source browsing.
-        if ValidationMixin._bash_is_poc_construction_command(command):
+        # Exception: Python that builds PoC bytes is construction, not source
+        # browsing. The task container ships python3, and constructing a
+        # candidate often needs to read a seed and emit a crafted file.
+        if ValidationMixin._bash_python_constructs_poc(command):
             return False
         browse_markers = (
             "open(",
@@ -531,6 +548,28 @@ class ValidationMixin:
         )
         output_markers = ("print(", "sys.stdout", "write(")
         return any(marker in text for marker in browse_markers) and any(marker in text for marker in output_markers)
+
+    @staticmethod
+    def _bash_python_constructs_poc(command: str) -> bool:
+        """True when a Python command builds or rewrites PoC bytes.
+
+        ``_bash_is_poc_construction_command`` covers writes into ``pocs/``;
+        binary construction markers cover in-place crafting and sanity checks
+        that transform bytes before the final write.
+        """
+        text = str(command or "").strip().lower()
+        if not text:
+            return False
+        if ValidationMixin._bash_is_poc_construction_command(command):
+            return True
+        construction_markers = (
+            "struct.pack(",
+            "struct.pack_into(",
+            ".to_bytes(",
+            "bytearray(",
+            "fromhex(",
+        )
+        return any(marker in text for marker in construction_markers)
 
     @staticmethod
     def _bash_prints_generated_diagnostic(command: str) -> bool:
