@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class ErrorCategory(str, Enum):
@@ -300,3 +301,22 @@ def classify_exception(exc: Exception, phase: str, step_id: int) -> RuntimeError
         step_id=step_id,
         recoverable=False,
     )
+
+
+def extract_status_code(exc: BaseException) -> Optional[int]:
+    """Best-effort HTTP status code for a provider or transport exception.
+
+    Walks the exception cause/context chain for an integer ``status_code``
+    attribute (openai and httpx exceptions carry one). When wrapping hides it,
+    falls back to the ``Error code: NNN`` prefix that provider messages use.
+    """
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        status = getattr(current, "status_code", None)
+        if isinstance(status, int):
+            return status
+        current = current.__cause__ or current.__context__
+    match = re.search(r"error code:\s*(\d{3})", str(exc), re.IGNORECASE)
+    return int(match.group(1)) if match else None

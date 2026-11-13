@@ -7,6 +7,7 @@ from qitos.core.errors import (
     LLMCallError,
     StopReason,
     classify_exception,
+    extract_status_code,
 )
 from qitos.engine._model_runtime import _ModelRuntime
 from qitos.engine.recovery import RecoveryPolicy
@@ -236,3 +237,21 @@ def test_recovery_policy_zero_backoff_disables_waiting(monkeypatch: pytest.Monke
     )
 
     assert decision.backoff_seconds == 0.0
+
+
+class _StatusError(Exception):
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def test_extract_status_code_reads_attribute_through_wrapping() -> None:
+    wrapped = LLMCallError("provider failed")
+    wrapped.__cause__ = _StatusError("provider failed", 503)
+
+    assert extract_status_code(wrapped) == 503
+
+
+def test_extract_status_code_parses_message_prefix() -> None:
+    assert extract_status_code(RuntimeError("Error code: 401 - Unauthorized")) == 401
+    assert extract_status_code(RuntimeError("plain failure")) is None

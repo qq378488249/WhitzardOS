@@ -20,7 +20,7 @@ from ..checkpoint.durability import DurabilityManager, DurabilityMode
 from ..checkpoint.pending_writes import PendingWriteManager
 from ..core.agent_module import AgentModule
 from ..core.decision import Decision
-from ..core.errors import ErrorCategory, StopReason
+from ..core.errors import ErrorCategory, StopReason, extract_status_code
 from ..core.env import Env, EnvObservation, EnvStepResult
 from ..core.history import History, HistoryMessage, HistoryPolicy
 from ..core.interceptor import InterceptorChain, ToolInterceptor
@@ -1604,6 +1604,9 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
             "error_message": str(exc),
             "traceback": traceback_text,
         }
+        status_code = extract_status_code(exc)
+        if status_code is not None:
+            payload["status_code"] = status_code
         self._last_runtime_error = payload
 
         print(

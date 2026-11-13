@@ -6,7 +6,7 @@ import time
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from ..core.decision import Decision
-from ..core.errors import StopReason
+from ..core.errors import StopReason, extract_status_code
 from ..core.state import StateSchema
 from ._context_runtime import ContextOverflowError
 from ._protocol import _EngineProtocol
@@ -341,11 +341,33 @@ class _ControlRuntime(Generic[StateT, ObservationT, ActionT]):
                 stop_reason=state.stop_reason,
             ),
         )
+        error_payload: Dict[str, Any] = {"error_type": type(exc).__name__}
+        status_code = extract_status_code(exc)
+        if status_code is not None:
+            error_payload["status_code"] = status_code
         if phase == RuntimePhase.DECIDE:
-            engine._emit(step_id, RuntimePhase.DECIDE_ERROR, ok=False, error=str(exc))
+            engine._emit(
+                step_id,
+                RuntimePhase.DECIDE_ERROR,
+                ok=False,
+                payload=dict(error_payload),
+                error=str(exc),
+            )
         elif phase == RuntimePhase.ACT:
-            engine._emit(step_id, RuntimePhase.ACT_ERROR, ok=False, error=str(exc))
-        engine._emit(step_id, RuntimePhase.RECOVER, ok=False, error=str(exc))
+            engine._emit(
+                step_id,
+                RuntimePhase.ACT_ERROR,
+                ok=False,
+                payload=dict(error_payload),
+                error=str(exc),
+            )
+        engine._emit(
+            step_id,
+            RuntimePhase.RECOVER,
+            ok=False,
+            payload=dict(error_payload),
+            error=str(exc),
+        )
 
         if engine.recovery_handler is not None:
             engine.recovery_handler(state, phase, exc)
