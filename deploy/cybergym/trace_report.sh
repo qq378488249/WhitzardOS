@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# Explain each finished task in a CyberGym traces directory.
+#
+# Usage:
+#   cd <run_root>/traces
+#   bash /path/to/deploy/cybergym/trace_report.sh [traces_dir]
+#
+# Reads every */manifest.json and prints one row per *finished* run: success or
+# failure, stop reason, elapsed time, steps, and the failure reason (trace
+# failure_report, then last_error, then the stop reason). Runs whose status is
+# still "running" are skipped. The parser prefers host python3/python and
+# falls back to qitos-cybergym-runner:local, like report.sh.
+set -euo pipefail
+
+usage() {
+  echo "usage: $0 [traces_dir]" >&2
+  exit 2
+}
+
+TARGET="${1:-$PWD}"
+
+if [[ ! -d "$TARGET" ]]; then
+  echo "not a directory: $TARGET" >&2
+  exit 1
+fi
+
+parse() {
+  "$@" - "$TARGET" <<'PY'
+import json
+import os
+import re
+import sys
+
+root = sys.argv[1]
+
+
+def clip(value, width):
+    text = "" if value is None else str(value)
+    text = " ".join(text.split())
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def summarize_result(value):
+    text = "" if value is None else str(value)
+    match = re.search(r"pocs/[\w./-]+", text)
+    if match:
+        return match.group(0)
+    return " ".join(text.split())
+
+
+def task_id_of(name, manifest, summary, task_result):
+    meta = summary.get("task_meta")
+    if isinstance(meta, dict) and meta.get("task_id"):
+        return str(meta["task_id"])
+    tr_meta = (task_result.get("metadata") or {}).get("task_meta")
+    if isinstance(tr_meta, dict) and tr_meta.get("task_id"):
+        return str(tr_meta["task_id"])
+    return name
+
+
+def failure_reason(summary):
+    report = summary.get("failure_report")
+    if isinstance(report, dict):
+        failures = report.get("failures")
+        if isinstance(failures, list) and failures:
+            last = failures[-1]
+            if isinstance(last, dict):
+                parts = [
+                    last.get("category"),
+                    last.get("phase"),
+                    last.get("message"),
+                ]
+                text = " / ".join(str(part) for part in parts if part)
+                if text:
+                    return text
+    last_error = summary.get("last_error")
+    if isinstance(last_error, dict):
+        message = last_error.get("error_message")
+        if message:
+            return str(message)
+    return ""
+
+
+rows = []
+running = 0
+unreadable = 0
+for name in sorted(os.listdir(root)):
+    path = os.path.join(root, name)
+    if not os.path.isdir(path):
+        continue
+    manifest_path = os.path.join(path, "manifest.json")
+    if not os.path.isfile(manifest_path):
+        continue
+    try:
+        with open(manifest_path, encoding="utf-8", errors="replace") as handle:
+            manifest = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        unreadable += 1
+        continue
+    if not isinstance(manifest, dict):
+        unreadable += 1
+        continue
+    summary = manifest.get("summary")
+    if not isinstance(summary, dict):
+        summary = {}
+    status = str(manifest.get("status") or "").lower()
+    stop = summary.get("stop_reason")
+    if status == "running" or (not stop and status not in ("completed", "failed")):
+        running += 1
+        continue
+
+    task_result = summary.get("task_result")
+    if not isinstance(task_result, dict):
+        task_result = {}
+    success = bool(task_result.get("success"))
+    metrics = task_result.get("metrics")
+    if not isinstance(metrics, dict):
+        metrics = {}
+    elapsed = summary.get("latency_seconds")
+    if elapsed is None:
+        elapsed = metrics.get("elapsed_seconds")
+    try:
+        elapsed_value = float(elapsed or 0)
+    except (TypeError, ValueError):
+        elapsed_value = 0.0
+    steps = summary.get("steps")
+    if steps is None:
+        steps = metrics.get("steps")
+    try:
+        steps_value = int(steps or 0)
+    except (TypeError, ValueError):
+        steps_value = 0
+
+    reason = failure_reason(summary)
+    if success:
+        if str(stop) == "final":
+            reason = "model declared final (check server verdict)"
+        else:
+            final_result = summarize_result(summary.get("final_result"))
+            reason = "verified" + (f": {final_result}" if final_result else "")
+    elif not reason:
+        reason = str(stop or "unknown")
+    rows.append(
+        (
+            task_id_of(name, manifest, summary, task_result),
+            "ok" if success else "FAIL",
+            str(stop or "-"),
+            elapsed_value,
+            steps_value,
+            reason,
+        )
+    )
+
+if not rows:
+    print(f"no finished traces in {root} (running skipped: {running})")
+    sys.exit(0)
+
+header = (
+    f"{'TASK':<18} {'RESULT':<6} {'STOP':<14} {'TIME':>8} {'STEPS':>6}  REASON"
+)
+print(header)
+print("-" * len(header))
+for task_id, result, stop, elapsed, steps, reason in rows:
+    print(
+        f"{clip(task_id, 18):<18} {result:<6} {clip(stop, 14):<14} "
+        f"{elapsed:>7.1f}s {steps:>6}  {clip(reason, 60)}"
+    )
+print("-" * len(header))
+ok = sum(1 for row in rows if row[1] == "ok")
+print(
+    f"finished={len(rows)} success={ok} failed={len(rows) - ok} "
+    f"running_skipped={running}"
+    + (f" unreadable={unreadable}" if unreadable else "")
+)
+PY
+}
+
+python_ok() {
+  "$1" -c 'import sys' >/dev/null 2>&1
+}
+
+if command -v python3 >/dev/null 2>&1 && python_ok python3; then
+  parse python3
+elif command -v python >/dev/null 2>&1 && python_ok python; then
+  parse python
+elif command -v docker >/dev/null 2>&1 \
+  && docker image inspect qitos-cybergym-runner:local >/dev/null 2>&1; then
+  parse docker run --rm -v "$TARGET:$TARGET:ro" \
+    --entrypoint python qitos-cybergym-runner:local
+else
+  echo "need python3/python on the host, or the qitos-cybergym-runner:local image in Docker" >&2
+  exit 1
+fi

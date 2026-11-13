@@ -247,6 +247,14 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml up -d
   ```
 
   不传参数时依次取 `$REPORT_JSONL`、当前目录；目录内优先使用 `*.report.jsonl`，没有时回退到最新的完整 `*.jsonl`（旧批次也能看）。宿主机没有 Python 时会自动用 `qitos-cybergym-runner:local` 镜像运行。
+- 按 trace 查看每个任务的成功/失败原因（未跑完的会自动跳过）：
+
+  ```bash
+  cd /opt/qitos-bench/runs/level1-a/traces
+  bash /opt/qitos-bench/qitos/deploy/cybergym/trace_report.sh
+  ```
+
+  输出每任务一行：结果、`stop_reason`、耗时、步数，以及失败原因（优先取 `manifest.json` 的 `failure_report`，其次 `last_error`，最后回退到 `stop_reason`）。`status=running` 的 trace 不显示，只在页脚计入 `running_skipped`。
 
 ## 9. 开第二个组
 

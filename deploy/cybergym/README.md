@@ -12,6 +12,7 @@
 | `compose-preflight.sh` | 启动前自检 |
 | `score.sh` | 在 runner 镜像里运行 server 判分脚本 |
 | `report.sh` | 手动查看某个批次的简洁每任务报告（默认读 `*.report.jsonl`） |
+| `trace_report.sh` | 在 traces 目录下查看每个已完成任务的成功/失败原因 |
 | `Dockerfile.runner` | runner 镜像构建文件 |
 | `Dockerfile.runner.dockerignore` | 构建上下文排除规则 |
 | `docker-entrypoint.sh` | 容器入口，校验 `.env` 并启动 launcher |
