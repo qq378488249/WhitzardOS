@@ -38,6 +38,7 @@ from .parser import (
     normalize_parser_diagnostics,
     parser_contract,
     parser_name,
+    strip_leaked_tool_markup,
 )
 from .states import RuntimePhase, StepRecord
 
@@ -45,6 +46,25 @@ from .states import RuntimePhase, StepRecord
 StateT = TypeVar("StateT", bound=StateSchema)
 ObservationT = TypeVar("ObservationT")
 ActionT = TypeVar("ActionT")
+
+# Consecutive native-text parse failures tolerated before the runtime ends the
+# run with a degraded final answer. Kept above one so a single malformed
+# response (for example leaked provider tool-call markup) gets a repair turn.
+NATIVE_TEXT_PARSER_ERROR_LIMIT = 3
+
+# Text that looks like an attempted structured decision rather than prose.
+# Only these failed parses are retried; a plain-language conclusion still ends
+# the run as a final answer, which is the reason native_text_final exists.
+_STRUCTURED_OUTPUT_ATTEMPT_RE = re.compile(
+    r"^\s*[\{\[]"
+    r"|<\s*/?\s*(?:tool_calls?|function_calls?|invoke|parameter)\b"
+    r"|\"(?:action|actions|tool_calls|final_answer|mode)\"\s*:",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_structured_output(text: str) -> bool:
+    return bool(_STRUCTURED_OUTPUT_ATTEMPT_RE.search(str(text or "")))
 
 
 def _escape_runtime_context_content(content: str) -> str:
@@ -69,6 +89,10 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
     def __init__(self, engine: _EngineProtocol):
         self.engine = engine
         self.stream_callback: Optional[Any] = None  # Callable[[str], None] or StreamHandler
+        # Consecutive steps where the model returned plain text without tool
+        # calls and the parser could not read it. Bounded so a broken provider
+        # cannot spin forever, but high enough to give the model a repair turn.
+        self._native_text_parser_error_streak = 0
 
     def run_decide(
         self, state: StateT, observation: ObservationT, record: StepRecord
@@ -987,6 +1011,7 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         if isinstance(raw_decision, Decision):
             if record is not None and not record.decision_source:
                 record.decision_source = "agent"
+            self._native_text_parser_error_streak = 0
             return raw_decision
 
         response = raw_decision if isinstance(raw_decision, ModelResponse) else None
@@ -996,6 +1021,7 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             record=record,
         )
         if native_decision is not None:
+            self._native_text_parser_error_streak = 0
             return native_decision
 
         # A generation cut at the output limit is not a final answer. GLM and
@@ -1028,6 +1054,9 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             )
 
         parser_input = response.text if response is not None else raw_decision
+        leaked_tool_markup = False
+        if isinstance(parser_input, str):
+            parser_input, leaked_tool_markup = strip_leaked_tool_markup(parser_input)
 
         # When native tool calling is preferred and the model returned plain
         # text without tool_calls, treat it as a final answer — the model is
@@ -1035,11 +1064,16 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         # Parsers (especially json_decision_v1) will misinterpret natural
         # language as invalid JSON and return wait(), which causes the agent
         # to loop forever without ever producing a final result.
+        #
+        # This must not swallow a *failed tool call*: text carrying leaked
+        # provider tool-call markup (or otherwise unparseable structured
+        # output) is retried through the parser-repair path and only becomes a
+        # degraded final after repeated failures.
         is_native_text_response = (
             response is not None
             and self._native_tool_call_preferred()
             and not (isinstance(response.tool_calls, list) and response.tool_calls)
-            and str(response.text or "").strip()
+            and str(parser_input or "").strip()
         )
 
         if is_native_text_response:
@@ -1056,12 +1090,27 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             # is the default fallback when natural language can't be parsed as
             # JSON — override it with native_text_final.
             if parse_outcome is not None and parse_outcome.mode != "wait":
+                self._native_text_parser_error_streak = 0
                 return parse_outcome
+
+            parser_failed = leaked_tool_markup or (
+                self._parser_reported_error(parse_outcome)
+                and _looks_like_structured_output(str(parser_input or ""))
+            )
+            if parser_failed:
+                return self._handle_native_text_parser_failure(
+                    parse_outcome=parse_outcome,
+                    cleaned_text=str(parser_input or "").strip(),
+                    leaked_tool_markup=leaked_tool_markup,
+                    step=step,
+                    record=record,
+                )
 
             if record is not None:
                 record.decision_source = "native_text_final"
+            self._native_text_parser_error_streak = 0
             return Decision.final(
-                answer=str(response.text).strip(),
+                answer=str(parser_input or "").strip(),
                 meta={"decision_source": "native_text_final"},
             )
 
@@ -1071,10 +1120,99 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             record=record,
         )
         if parse_outcome is not None:
+            if leaked_tool_markup and parse_outcome.mode == "wait":
+                # Markup-only output: the cleaned text is empty, so the branch
+                # above did not handle it. Count it and let the run continue.
+                return self._handle_native_text_parser_failure(
+                    parse_outcome=parse_outcome,
+                    cleaned_text=str(parser_input or "").strip(),
+                    leaked_tool_markup=leaked_tool_markup,
+                    step=step,
+                    record=record,
+                )
+            if parse_outcome.mode != "wait":
+                self._native_text_parser_error_streak = 0
             return parse_outcome
 
         raise ValueError(
             "Agent.decide must return Decision when no parser is configured"
+        )
+
+    @staticmethod
+    def _parser_reported_error(decision: Decision[ActionT] | None) -> bool:
+        if decision is None:
+            return False
+        meta = decision.meta if isinstance(decision.meta, dict) else {}
+        return bool(meta.get("parser_error"))
+
+    def _handle_native_text_parser_failure(
+        self,
+        *,
+        parse_outcome: Decision[ActionT] | None,
+        cleaned_text: str,
+        leaked_tool_markup: bool,
+        step: int,
+        record: StepRecord | None,
+    ) -> Decision[ActionT]:
+        """Retry unparseable native text instead of ending the run on it.
+
+        A text response that is really a mangled tool call (for example leaked
+        ``<｜DSML｜tool_calls>`` markup) must not be recorded as the final
+        answer. The parser's ``wait`` decision carries repair feedback, so the
+        next step can correct the output; only after
+        ``NATIVE_TEXT_PARSER_ERROR_LIMIT`` consecutive failures does the run
+        end, and then the stop is marked as degraded.
+        """
+        self._native_text_parser_error_streak += 1
+        streak = self._native_text_parser_error_streak
+        decision_source = (
+            "native_text_tool_markup"
+            if leaked_tool_markup
+            else "native_text_parser_error"
+        )
+        if record is not None:
+            record.decision_source = decision_source
+        self.engine._emit(
+            step,
+            RuntimePhase.DECIDE,
+            payload={
+                "stage": "native_text_parser_failure",
+                "decision_source": decision_source,
+                "leaked_tool_markup": leaked_tool_markup,
+                "parser_error_streak": streak,
+                "limit": NATIVE_TEXT_PARSER_ERROR_LIMIT,
+                "text_chars": len(cleaned_text),
+            },
+        )
+        if streak < NATIVE_TEXT_PARSER_ERROR_LIMIT:
+            if parse_outcome is not None:
+                return parse_outcome
+            return Decision.wait(
+                rationale=(
+                    "Model text without tool calls could not be parsed; "
+                    "continuing so the next step can repair the output."
+                ),
+                meta={
+                    "parser_error": True,
+                    "leaked_tool_markup": leaked_tool_markup,
+                    "parser_feedback": (
+                        "Return a valid JSON decision or a real tool call; "
+                        "do not emit provider tool-call markup."
+                    ),
+                },
+            )
+        return Decision.final(
+            answer=cleaned_text
+            or "[degraded] model produced unparseable tool-call output",
+            rationale=(
+                "Repeated unparseable text responses from the model; ending "
+                "the run with a degraded final answer."
+            ),
+            meta={
+                "decision_source": "native_text_final_degraded",
+                "leaked_tool_markup": leaked_tool_markup,
+                "parser_error_streak": streak,
+            },
         )
 
     @staticmethod

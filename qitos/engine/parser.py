@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar
@@ -78,6 +79,32 @@ def parser_raw_preview(raw_output: Any, limit: int = 50000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "... (truncated)"
+
+
+# Provider-private tool-call markup that leaks into `content` when an
+# OpenAI-compatible gateway does not map it to native `tool_calls`. DeepSeek
+# models emit `<｜DSML｜tool_calls>` (with U+FF5C fullwidth bars), for example.
+_LEAKED_TOOL_MARKUP_RE = re.compile(
+    r"<[｜|]\s*DSML\s*[｜|][^>]*>",
+    re.IGNORECASE,
+)
+
+
+def strip_leaked_tool_markup(text: str) -> tuple[str, bool]:
+    """Strip provider-private tool-call markup from model text.
+
+    Returns ``(cleaned_text, had_markup)``. Text carrying this markup is a
+    failed tool call, never a final answer; callers use the flag to keep it
+    out of the final-answer path and to route it through parser repair.
+    """
+    if not text:
+        return text, False
+    cleaned = _LEAKED_TOOL_MARKUP_RE.sub("", text)
+    if cleaned == text:
+        return text, False
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, True
 
 
 def build_parser_diagnostics(

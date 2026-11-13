@@ -238,3 +238,85 @@ def test_native_tool_call_history_keeps_assistant_text_and_tool_calls():
     assert first.content == "Conclusion: likely 1-byte trigger. Next: use add."
     assert first.tool_calls
     assert first.tool_calls[0]["function"]["name"] == "add"
+
+
+class _NativeTextModel:
+    model = "demo-model"
+    qitos_harness_metadata = {"tool_policy": {"native_tool_call_preferred": True}}
+
+
+def _native_text_runtime():
+    engine = Engine(
+        agent=_ToolCallAgent(llm=_NativeTextModel()),
+        budget=RuntimeBudget(max_steps=1),
+    )
+    return engine._model_runtime
+
+
+def _text_response(text: str) -> ModelResponse:
+    return ModelResponse(text=text, tool_calls=None, finish_reason="stop")
+
+
+def test_native_plain_text_conclusion_is_still_a_final_answer():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    decision = runtime.normalize_decision(
+        _text_response("All checks are done; nothing left to do."),
+        step=0,
+        record=record,
+    )
+
+    assert decision.mode == "final"
+    assert decision.final_answer == "All checks are done; nothing left to do."
+    assert record.decision_source == "native_text_final"
+
+
+def test_leaked_dsml_tool_markup_is_not_a_final_answer():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    decision = runtime.normalize_decision(
+        _text_response(
+            "Let me write the script to build the file:\n\n"
+            "<｜DSML｜tool_calls>\n<｜DSML｜tool_calls>"
+        ),
+        step=0,
+        record=record,
+    )
+
+    assert decision.mode == "wait"
+    assert decision.meta["parser_error"] is True
+    assert record.decision_source == "native_text_tool_markup"
+
+
+def test_malformed_structured_output_is_retried_not_finalized():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    decision = runtime.normalize_decision(
+        _text_response('{"action": {"name": "add", "args": {"a": 1'),
+        step=0,
+        record=record,
+    )
+
+    assert decision.mode == "wait"
+    assert decision.meta["parser_error"] is True
+
+
+def test_repeated_unparseable_text_ends_with_degraded_final():
+    runtime = _native_text_runtime()
+    markup = "Let me write the script:\n\n<｜DSML｜tool_calls>"
+
+    decisions = [
+        runtime.normalize_decision(
+            _text_response(markup), step=step, record=StepRecord(step_id=step)
+        )
+        for step in range(3)
+    ]
+
+    assert [decision.mode for decision in decisions] == ["wait", "wait", "final"]
+    degraded = decisions[-1]
+    assert degraded.meta["decision_source"] == "native_text_final_degraded"
+    assert degraded.meta["parser_error_streak"] == 3
+    assert "<｜DSML｜" not in degraded.final_answer

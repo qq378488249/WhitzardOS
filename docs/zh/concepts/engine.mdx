@@ -113,6 +113,24 @@ engine.clear_hooks()
 
 你也可以在构造时通过 `hooks` 传入，或在 `agent.run(hooks=[...])` 中动态附加。
 
+## 最终答案与失败的工具调用
+
+在使用原生工具调用时，只包含文本、没有 `tool_calls` 的响应会被当作智能体的
+最终答案（`decision_source=native_text_final`），模型可以用自然语言结束运行。
+但两类文本不算最终答案：
+
+- 含有泄漏的厂商私有工具调用标记的文本，例如 OpenAI 兼容网关原样透传的
+  DeepSeek `<｜DSML｜tool_calls>` 特殊 token；
+- 看起来像结构化决策（以 `{`、`[` 开头，或包含 `"tool_calls"`/`"action"` 键）
+  但解析失败的输出。
+
+这类响应会以 `wait` 决策进入解析器修复流程，运行继续而不是被静默结束。只有连续
+三次失败后运行才会终止，并在 trace 中以
+`decision_source=native_text_final_degraded` 与 `parser_error_streak` 标记该
+降级结束，避免把损坏的工具调用伪装成正常完成。使用默认 prompt builder 的 agent
+会通过 `parser_feedback` 收到解析器的修复指令；自行手工构建 prompt 的 CyberGym
+agent 则在下一次 observation 中附加一条一次性的修复提示。
+
 ## 预算耗尽
 
 当步数、墙钟时间或令牌预算耗尽时，Engine 会把 `state.stop_reason` 设置为对应值，并写出 `END` 事件。运行会优雅结束，仍然返回 `EngineResult`，你可以通过检查 `state.stop_reason` 判断是否发生了预算耗尽。

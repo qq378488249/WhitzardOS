@@ -113,6 +113,28 @@ engine.clear_hooks()
 
 You can also pass hooks at construction time via the `hooks` parameter, or at run time via `agent.run(hooks=[...])`.
 
+## Final answers and failed tool calls
+
+With native tool calling, a response that carries text but no `tool_calls` is
+treated as the agent's final answer (`decision_source=native_text_final`), so a
+model can close the run in plain language. Two kinds of text are not final
+answers:
+
+- text containing leaked provider tool-call markup, such as DeepSeek's
+  `<｜DSML｜tool_calls>` tokens forwarded verbatim by an OpenAI-compatible
+  gateway;
+- output that looks like a structured decision (`{`, `[`, or
+  `"tool_calls"`/`"action"` keys) but fails to parse.
+
+These responses are retried through the parser-repair path as `wait` decisions
+and keep the run alive. Only after three consecutive failures does the run end,
+and the trace marks that stop with `decision_source=native_text_final_degraded`
+plus `parser_error_streak`, so a mangled tool call no longer masquerades as a
+normal completion. Agents built on the default prompt builder receive the
+parser's repair instruction through `parser_feedback`; the CyberGym agent,
+which builds its prompt manually, appends a one-shot repair reminder to the
+next observation instead.
+
 ## Budget exhaustion
 
 When the step budget, wall-clock time limit, or token budget is exceeded, the Engine sets `state.stop_reason` to the appropriate value and emits an `END` event. The run terminates gracefully and `EngineResult` is still returned — inspect `state.stop_reason` to detect this case.
