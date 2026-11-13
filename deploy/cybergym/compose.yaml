@@ -5,7 +5,7 @@
 #
 # Usage (from the repository root; from deploy/ drop the deploy/ prefix):
 #   docker load -i deploy/images/cage-claude-code-cyberdebug.tar.gz
-#   docker load -i deploy/images/qitos-cybergym-runner-1.0.4.tar.gz
+#   docker load -i deploy/images/qitos-cybergym-runner-1.0.6.tar.gz
 #   cp deploy/cybergym/.env.compose.example deploy/cybergym/.env
 #   $EDITOR deploy/cybergym/.env
 #   bash deploy/cybergym/compose-preflight.sh
