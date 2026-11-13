@@ -81,6 +81,63 @@ def failure_reason(summary):
     return ""
 
 
+def last_decision_source(trace_dir):
+    """decision_source of the final StepRecord (read the tail of steps.jsonl)."""
+    path = os.path.join(trace_dir, "steps.jsonl")
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as handle:
+            handle.seek(max(0, size - 262144))
+            data = handle.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    for line in reversed(data.splitlines()):
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            record = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        source = record.get("decision_source")
+        if source:
+            return str(source)
+        decision = record.get("decision")
+        if isinstance(decision, dict) and decision.get("mode"):
+            return str(decision["mode"])
+    return ""
+
+
+def final_reason(trace_dir, summary):
+    """Explain a self-declared `final`: model answer vs unparseable tool call."""
+    source = last_decision_source(trace_dir)
+    parser = summary.get("parser")
+    if not isinstance(parser, dict):
+        parser = {}
+    codes = parser.get("error_codes")
+    if not isinstance(codes, dict):
+        codes = {}
+    code_text = ", ".join(f"{key} x{value}" for key, value in codes.items())
+    final_text = str(summary.get("final_result") or "")
+    if "DSML" in final_text:
+        return "final: leaked DSML tool-call markup ended the run"
+    if source == "native_text_tool_markup":
+        return "final: leaked tool-call markup (DSML)"
+    if source == "native_text_final_degraded":
+        suffix = f" ({code_text})" if code_text else ""
+        return "final: repeated unparseable tool-call text (degraded)" + suffix
+    if source == "native_text_final" and (parser.get("error_count") or code_text):
+        suffix = f" ({code_text})" if code_text else ""
+        return "final: model tool-call text could not be parsed" + suffix
+    if source == "native_text_final":
+        return "model declared final (no tool call)"
+    if code_text:
+        return f"model declared final; parser errors: {code_text}"
+    return "model declared final (check server verdict)"
+
+
 rows = []
 running = 0
 unreadable = 0
@@ -132,12 +189,11 @@ for name in sorted(os.listdir(root)):
         steps_value = 0
 
     reason = failure_reason(summary)
-    if success:
-        if str(stop) == "final":
-            reason = "model declared final (check server verdict)"
-        else:
-            final_result = summarize_result(summary.get("final_result"))
-            reason = "verified" + (f": {final_result}" if final_result else "")
+    if str(stop) == "final":
+        reason = final_reason(path, summary)
+    elif success:
+        final_result = summarize_result(summary.get("final_result"))
+        reason = "verified" + (f": {final_result}" if final_result else "")
     elif not reason:
         reason = str(stop or "unknown")
     rows.append(
