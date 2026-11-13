@@ -1,6 +1,6 @@
 # LLM Call Retry Strategy Design
 
-**Date:** 2026-11-13  
+**Date:** 2026-11-12  
 **Status:** Implemented (commits `975e931`, `88e9f1e`)  
 **Scope:** `qitos.core.errors`, `qitos.engine._model_runtime`, `qitos.engine._control_runtime`, `qitos.engine.recovery`
 
