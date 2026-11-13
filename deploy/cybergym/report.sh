@@ -68,8 +68,9 @@ with open(path, encoding="utf-8", errors="replace") as handle:
         except json.JSONDecodeError:
             continue
 
+rows = [row for row in rows if isinstance(row, dict)]
 if not rows:
-    print("no rows in", path)
+    print("no task rows in", path)
     sys.exit(0)
 
 
@@ -92,26 +93,40 @@ print("-" * len(header))
 
 success_count = 0
 for row in rows:
+    if not isinstance(row, dict):
+        continue
     compact = "elapsed_seconds" in row
     success = bool(row.get("success"))
     success_count += int(success)
     stop = pick(row, "stop_reason", "-")
     elapsed = pick(row, "elapsed_seconds" if compact else "latency_seconds", 0)
     final = pick(row, "final_result" if compact else "prediction")
-    meta = row.get("metadata") or {}
+    meta = row.get("metadata")
+    if not isinstance(meta, dict):
+        meta = {}
+    # Both report formats may predate the vul/fix fields; missing or empty
+    # values are shown as "-" instead of failing the viewer.
     vul = row.get("vul_exit_code", meta.get("vul_exit_code"))
     fix = row.get("fix_exit_code", meta.get("fix_exit_code"))
+    vul = None if vul in (None, "") else vul
+    fix = None if fix in (None, "") else fix
     reason = row.get("reason") or meta.get("failure_reason") or ""
+    if not isinstance(reason, str):
+        reason = str(reason)
     if not success and not reason:
-        reason = stop
+        reason = str(stop)
+    try:
+        elapsed_value = float(elapsed or 0)
+    except (TypeError, ValueError):
+        elapsed_value = 0.0
     print(
         f"{clip(row.get('task_id'), 18):<18} "
         f"{'ok' if success else 'FAIL':<6} "
         f"{clip(stop, 13):<13} "
-        f"{float(elapsed or 0):>7.1f}s "
+        f"{elapsed_value:>7.1f}s "
         f"{clip(final, 24):<24} "
-        f"{'-' if vul is None else str(vul):>4} "
-        f"{'-' if fix is None else str(fix):>4}  "
+        f"{'-' if vul is None else clip(vul, 4):>4} "
+        f"{'-' if fix is None else clip(fix, 4):>4}  "
         f"{clip(reason, 48) if not success else ''}"
     )
 
