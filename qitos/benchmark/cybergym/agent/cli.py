@@ -41,6 +41,8 @@ def infer_family_id(model: str) -> str | None:
         return "mimo"
     if normalized_model.startswith(("deepseek", "ds-v4")):
         return "deepseek"
+    if normalized_model.startswith(("minimax", "minimax-")):
+        return "minimax"
     return None
 
 
@@ -49,14 +51,14 @@ def default_max_tokens_for_model(model: str) -> int:
     family = infer_family_id(model)
     if family == "glm":
         return GLM_DEFAULT_MAX_TOKENS
-    if family in {"mimo", "deepseek"}:
+    if family in {"mimo", "deepseek", "minimax"}:
         return REASONING_DEFAULT_MAX_TOKENS
     return DEFAULT_MAX_TOKENS
 
 
 def default_timeout_for_model(model: str) -> int:
     """Return the per-request timeout for a model name."""
-    if infer_family_id(model) in {"glm", "mimo", "deepseek"}:
+    if infer_family_id(model) in {"glm", "mimo", "deepseek", "minimax"}:
         return REASONING_API_TIMEOUT
     return DEFAULT_API_TIMEOUT
 
