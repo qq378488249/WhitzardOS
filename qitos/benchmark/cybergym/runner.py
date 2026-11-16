@@ -437,6 +437,10 @@ def run_cybergym_agent_task(
         }
         if checkpoint_store is not None:
             engine_kwargs["checkpoint_store"] = checkpoint_store
+            # Pin the checkpoint thread to the task, not to the attempt: the
+            # trace keeps its own per-attempt run id, while checkpoints of the
+            # same task stay on one chain a later attempt can resume.
+            engine_kwargs["run_id"] = checkpoint_thread
         result = agent.run(
             task=task,
             return_state=True,

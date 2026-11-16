@@ -119,6 +119,26 @@ def test_resume_continues_from_next_step_and_restores_subclass_state(tmp_path):
         store.close()
 
 
+def test_pinned_run_id_keeps_checkpoints_on_one_thread(tmp_path):
+    """A pinned run id keeps every attempt of one task on one chain."""
+    store = SqliteCheckpointStore(str(tmp_path / "cp.sqlite"))
+    try:
+        engine = Engine(
+            _ResumeAgent(steps_before_final=1),
+            budget=RuntimeBudget(max_steps=10),
+            checkpoint_store=store,
+            run_id="pinned-thread",
+        )
+        result = engine.run("resume task")
+
+        assert result.run_id == "pinned-thread"
+        latest = _latest(store, "pinned-thread")
+        assert latest is not None
+        assert latest.checkpoint.thread_id == "pinned-thread"
+    finally:
+        store.close()
+
+
 def test_agent_run_accepts_resume_from(tmp_path):
     """The production path: AgentModule.run(..., resume_from=config)."""
     store = SqliteCheckpointStore(str(tmp_path / "cp.sqlite"))

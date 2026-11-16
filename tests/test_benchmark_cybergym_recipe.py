@@ -252,13 +252,17 @@ class CybergymCheckpointTests(unittest.TestCase):
             source_root.mkdir(parents=True)
             ckpt_dir = task_root / "checkpoints"
 
-            _, fake_agent, result = self._run(
+            fake_task, fake_agent, result = self._run(
                 task_root, source_root, checkpoint_dir=str(ckpt_dir)
             )
 
             run_kwargs = fake_agent.run.call_args.kwargs
             store = run_kwargs["engine_kwargs"]["checkpoint_store"]
             self.assertIsInstance(store, SqliteCheckpointStore)
+            self.assertEqual(
+                run_kwargs["engine_kwargs"]["run_id"],
+                cybergym_runner._checkpoint_thread_id(fake_task),
+            )
             self.assertIsNone(run_kwargs["resume_from"])
             self.assertTrue((ckpt_dir / "arvo_1065.sqlite").exists())
             self.assertEqual(result["checkpoint_db"], str(ckpt_dir / "arvo_1065.sqlite"))

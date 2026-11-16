@@ -283,6 +283,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
         checkpoint_manager: Optional[Any] = None,
         checkpoint_store: Optional[CheckpointStore] = None,
         checkpoint_durability: DurabilityMode = DurabilityMode.SYNC,
+        run_id: Optional[str] = None,
         permission_pipeline: Optional[Any] = None,
         read_before_write_enforcer: Optional[Any] = None,
         permission_interaction_callback: Optional[Any] = None,
@@ -421,6 +422,9 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
         self._pending_write_manager: Optional[PendingWriteManager] = None
         self._last_checkpoint_id: Optional[CheckpointId] = None
         self._resume_info: Dict[str, Any] = {}
+        # A pinned run id keeps every attempt of the same work on one
+        # checkpoint thread, so a later attempt can find the previous chain.
+        self._configured_run_id = str(run_id).strip() if run_id else ""
 
         if checkpoint_store is not None:
             self._durability_manager = DurabilityManager(checkpoint_store, mode=checkpoint_durability)
@@ -809,7 +813,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
                 self.recovery_policy.reset()
             except Exception as exc:
                 _logger.debug("Failed to reset recovery_policy: %s", exc)
-        self._active_run_id = _resume_run_id or (
+        self._active_run_id = _resume_run_id or self._configured_run_id or (
             str(getattr(self.trace_writer, "run_id", "")).strip()
             if self.trace_writer is not None
             else ""
