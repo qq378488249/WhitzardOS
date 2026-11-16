@@ -135,6 +135,17 @@ class AgentModule(ABC, Generic[StateT, ObservationT, ActionT]):
 
         return Engine(agent=self, **engine_kwargs)
 
+    def refresh_state(self, state: StateT, task: str, **kwargs: Any) -> StateT:
+        """Refresh task-scoped fields of a restored state before continuing.
+
+        Called instead of ``init_state`` when a run resumes from a checkpoint:
+        the restored state carries the previous attempt's identity (task id,
+        agent id, checksum), which a regenerated task package replaces. The
+        default keeps the restored state as it is.
+        """
+        _ = (task, kwargs)
+        return state
+
     def active_protocol(self) -> Any:
         runtime_protocol = getattr(self, "_runtime_protocol", None)
         if runtime_protocol is not None:
@@ -342,7 +353,9 @@ class AgentModule(ABC, Generic[StateT, ObservationT, ActionT]):
         result = (
             engine.run(task, **state_kwargs)
             if resume_from is None
-            else engine.resume_from_checkpoint(resume_from, task=task)
+            else engine.resume_from_checkpoint(
+                resume_from, task=task, state_kwargs=state_kwargs
+            )
         )
         if return_state:
             return result

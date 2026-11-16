@@ -1770,6 +1770,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
         *,
         task: Task | str | None = None,
         state_cls: Optional[type] = None,
+        state_kwargs: Optional[Dict[str, Any]] = None,
     ) -> EngineResult:
         """Resume a run from a saved checkpoint.
 
@@ -1784,6 +1785,9 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
                 task text stored in the checkpoint state.
             state_cls: State class used to rebuild the snapshot. Defaults to the
                 class recorded in the checkpoint, then the engine's active state.
+            state_kwargs: Task-scoped values handed to the agent's
+                ``refresh_state`` hook, so a restored state can adopt the
+                identity of the current task.
 
         Returns:
             EngineResult from the resumed run.
@@ -1827,6 +1831,19 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
             _, explicit_task_text = self._normalize_task(task)
             if explicit_task_text:
                 state.task = explicit_task_text
+
+        if state_kwargs:
+            # The restored state carries the previous attempt's identity. Give
+            # the agent a chance to adopt the current task's values before the
+            # loop continues.
+            refresh = getattr(self.agent, "refresh_state", None)
+            if callable(refresh):
+                try:
+                    refreshed = refresh(state, state.task, **state_kwargs)
+                    if refreshed is not None:
+                        state = refreshed
+                except Exception as exc:
+                    _logger.warning("Agent state refresh on resume failed: %s", exc)
 
         self._active_run_id = checkpoint.thread_id
         self._last_checkpoint_id = checkpoint.id

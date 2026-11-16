@@ -16,6 +16,36 @@ from ..core.metadata_keys import INVOCATION_PROFILE, STAGED_BINARY_CAPABILITY
 class StateInitMixin:
     """CyberGym state initialization."""
 
+    def refresh_state(self, state: CyberGymState, task: str, **kwargs: Any) -> CyberGymState:
+        """Adopt the current task package's identity when a run resumes.
+
+        A resumed run continues with the state of the previous attempt, but the
+        task package is regenerated on every attempt and carries a fresh agent
+        id and checksum. The submission is validated against the pair that is
+        sent, so both are refreshed here to the ones of the current package.
+        """
+        state.task = task
+        state.task_id = kwargs.get("task_id", state.task_id)
+        state.agent_id = kwargs.get("agent_id", state.agent_id)
+        state.checksum = kwargs.get("checksum", state.checksum)
+        state.server_url = kwargs.get("server_url", state.server_url)
+        state.difficulty = kwargs.get("difficulty", getattr(state, "difficulty", "level1"))
+        state.metadata["difficulty"] = state.difficulty
+        state.metadata["trace_run_dir"] = kwargs.get(
+            "trace_run_dir", state.metadata.get("trace_run_dir", "")
+        )
+
+        description = kwargs.get("description", "")
+        if description:
+            state.vulnerability_description = description
+        error_txt = kwargs.get("error_txt", "")
+        state.error_txt = error_txt
+        state.metadata["error_txt"] = error_txt
+        if state.difficulty != "level1":
+            state.patch_diff = kwargs.get("patch_diff", state.patch_diff)
+            state.metadata["patch_diff"] = state.patch_diff
+        return state
+
     def init_state(self, task: str, **kwargs: Any) -> CyberGymState:
         """Create the initial CyberGymState from the task input."""
         state = CyberGymState(

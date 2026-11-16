@@ -85,8 +85,11 @@ checkpoint 在循环的 `advance_step()` 之前写入，所以快照里的
 
 ### D4 — 线程标识稳定且与任务内容绑定
 
-线程 id：`cybergym:<task_id>[:<checksum[:12]>]`——任务包能提供 checksum 时
-追加后缀，确保重新生成的任务不会沿用旧包的状态。
+线程 id：`cybergym:<task_id>[:<difficulty>]`——任务 id 和难度级别标识这份工作。
+任务包的 checksum 不能进线程 id：每次尝试都会重新生成任务包、换一个新的
+agent_id，因此 checksum 每次都变；把 checksum 放进线程 id 会让每次尝试都变成
+不同的线程，任务永远续不上。续跑改为通过 agent 的 `refresh_state` 钩子采用
+当前任务包的身份（agent_id、checksum）。
 
 每个任务一个 SQLite 文件：`<checkpoint_dir>/<task_slug>.sqlite`
 （例如 `arvo_1065.sqlite`）。按任务分文件避免批量并发 > 1 时 SQLite 写竞争。
@@ -161,8 +164,11 @@ SQLite store 新增 `state_type` 列，并做增量迁移（由 `PRAGMA table_in
 
 - 新增关键字参数 `resume_from: CheckpointConfig | None = None`。设置后先做与
   普通运行相同的 engine/spec 装配，再调用
-  `engine.resume_from_checkpoint(...)`，并传入原始任务对象。类型是宽泛的，
-  避免 `qitos.core` 依赖 `qitos.checkpoint`。
+  `engine.resume_from_checkpoint(...)`，并传入原始任务对象和任务参数。类型是
+  宽泛的，避免 `qitos.core` 依赖 `qitos.checkpoint`。
+- 新增钩子 `refresh_state(state, task, **kwargs)`，在循环继续之前对恢复出来的
+  state 调用。默认原样返回；CyberGym agent 用它采用当前任务包的 agent_id 和
+  checksum。
 
 ### CyberGym
 

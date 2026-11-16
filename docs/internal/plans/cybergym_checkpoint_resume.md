@@ -92,9 +92,13 @@ Consequences:
 
 ### D4 — Thread identity is stable and tied to the task content
 
-Thread id: `cybergym:<task_id>[:<checksum[:12]>]` — the checksum suffix is added
-when the task package exposes one, so a regenerated task never resumes state
-from an older package.
+Thread id: `cybergym:<task_id>[:<difficulty>]` — the task id and the difficulty
+identify the work. The task package's checksum cannot be part of it: every
+attempt regenerates the package with a fresh agent id and therefore a fresh
+checksum, so a checksum in the thread id would make every attempt a different
+thread and no task could ever resume. The resumed run instead adopts the
+current package's identity (agent id, checksum) through the agent's
+`refresh_state` hook.
 
 One SQLite database per task: `<checkpoint_dir>/<task_slug>.sqlite`
 (e.g. `arvo_1065.sqlite`). Per-task files avoid SQLite write contention when
@@ -175,8 +179,11 @@ traces remain per-attempt artifacts while checkpoints form one chain.
 
 - New keyword `resume_from: CheckpointConfig | None = None`. When set, the same
   engine/spec setup runs first and then `engine.resume_from_checkpoint(...)` is
-  called with the original task object. Typed loosely to keep `qitos.core` free
-  of a `qitos.checkpoint` import.
+  called with the original task object and the task kwargs. Typed loosely to
+  keep `qitos.core` free of a `qitos.checkpoint` import.
+- New hook `refresh_state(state, task, **kwargs)`, called on a restored state
+  before the loop continues. The default keeps the state as it is; the CyberGym
+  agent uses it to adopt the current package's agent id and checksum.
 
 ### CyberGym
 

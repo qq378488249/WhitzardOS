@@ -139,6 +139,36 @@ def test_pinned_run_id_keeps_checkpoints_on_one_thread(tmp_path):
         store.close()
 
 
+def test_resume_refreshes_task_identity(tmp_path):
+    """The restored state adopts the current task's identity values."""
+    store = SqliteCheckpointStore(str(tmp_path / "cp.sqlite"))
+    try:
+        first = _engine(store, _ResumeAgent(steps_before_final=1)).run("resume task")
+        latest = _latest(store, first.run_id)
+        assert latest is not None
+
+        agent = _ResumeAgent(steps_before_final=latest.checkpoint.step + 1)
+        seen: dict = {}
+
+        def refresh(state, task, **kwargs):
+            seen.update({"task": task, **kwargs})
+            state.identity = kwargs.get("agent_id", "")
+            return state
+
+        agent.refresh_state = refresh  # type: ignore[method-assign]
+        resumed = _engine(store, agent).resume_from_checkpoint(
+            CheckpointConfig(thread_id=first.run_id),
+            task="resume task",
+            state_kwargs={"agent_id": "agent-2", "checksum": "abc"},
+        )
+
+        assert seen["agent_id"] == "agent-2"
+        assert seen["checksum"] == "abc"
+        assert resumed.state.identity == "agent-2"  # type: ignore[attr-defined]
+    finally:
+        store.close()
+
+
 def test_agent_run_accepts_resume_from(tmp_path):
     """The production path: AgentModule.run(..., resume_from=config)."""
     store = SqliteCheckpointStore(str(tmp_path / "cp.sqlite"))

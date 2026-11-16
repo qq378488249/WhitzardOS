@@ -183,10 +183,16 @@ _RESUMABLE_STOP_REASONS = frozenset({"budget_time", "interrupt"})
 
 
 def _checkpoint_thread_id(task: Any) -> str:
-    """Stable checkpoint thread for a task, tied to the task package content."""
+    """Stable checkpoint thread for a task.
+
+    The task id and the difficulty identify the work; the task package's
+    checksum cannot, because every attempt regenerates the package with a
+    fresh agent id and therefore a fresh checksum. The resumed run adopts the
+    current package's identity through the agent's state refresh instead.
+    """
     task_id = str(task.inputs.get("task_id") or task.id)
-    checksum = str(task.inputs.get("checksum") or "").strip()
-    suffix = f":{checksum[:12]}" if checksum else ""
+    difficulty = str(task.inputs.get("difficulty") or "").strip()
+    suffix = f":{difficulty}" if difficulty else ""
     return f"cybergym:{task_id}{suffix}"
 
 
