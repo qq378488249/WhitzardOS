@@ -48,6 +48,8 @@ def main() -> int:
     parser.add_argument("--trace-prefix", default="qitos_cybergym_batch")
     parser.add_argument("--output-jsonl", default="")
     parser.add_argument("--report-jsonl", default="")
+    parser.add_argument("--checkpoint-dir", default="")
+    parser.add_argument("--continue-from-checkpoint", action="store_true")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
@@ -85,6 +87,9 @@ def main() -> int:
         },
     )
     run_spec.environment = dict(run_spec.environment or {})
+    checkpoint_dir = str(args.checkpoint_dir).strip()
+    if bool(args.continue_from_checkpoint) and not checkpoint_dir:
+        checkpoint_dir = str(out_root / "checkpoints")
     run_spec.environment.update(
         {
             "data_dir": str(data_dir),
@@ -94,6 +99,8 @@ def main() -> int:
             "trace_logdir": str(traces),
             "workspace": str(workspace),
             "trace_prefix": str(args.trace_prefix),
+            "checkpoint_dir": checkpoint_dir,
+            "continue_from_checkpoint": bool(args.continue_from_checkpoint),
         }
     )
     output_path = (

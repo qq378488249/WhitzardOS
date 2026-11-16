@@ -179,6 +179,34 @@ from .evaluator import CyberGymEvaluator
 from .runtime import CyberGymRuntimeHook, prepare_task_dir
 from .scorer import CyberGymScorer
 
+_RESUMABLE_STOP_REASONS = frozenset({"budget_time", "interrupt"})
+
+
+def _checkpoint_thread_id(task: Any) -> str:
+    """Stable checkpoint thread for a task, tied to the task package content."""
+    task_id = str(task.inputs.get("task_id") or task.id)
+    checksum = str(task.inputs.get("checksum") or "").strip()
+    suffix = f":{checksum[:12]}" if checksum else ""
+    return f"cybergym:{task_id}{suffix}"
+
+
+def _is_resumable_checkpoint(checkpoint: Any) -> bool:
+    """A checkpoint is resumable unless the previous attempt reached a real stop."""
+    stop_reason = (checkpoint.state_data or {}).get("stop_reason")
+    return not stop_reason or str(stop_reason) in _RESUMABLE_STOP_REASONS
+
+
+def _clear_checkpoint_thread(store: Any, thread_id: str) -> None:
+    from qitos.checkpoint import CheckpointConfig
+
+    for item in list(store.list(CheckpointConfig(thread_id=thread_id))):
+        store.delete(
+            CheckpointConfig(
+                thread_id=thread_id,
+                checkpoint_id=item.checkpoint.id,
+            )
+        )
+
 
 def _make_tui_log_hook(log_file: str, theme: str = "research") -> ClaudeStyleHook:
     """Create a ClaudeStyleHook that writes TUI output to a per-task log file.
@@ -239,6 +267,8 @@ def run_cybergym_agent_task(
     max_runtime_seconds: float,
     trace_logdir: str | Path,
     trace_prefix: str = "qitos_cybergym",
+    checkpoint_dir: str | Path | None = None,
+    continue_from_checkpoint: bool = False,
     run_spec: RunSpec | None = None,
     experiment_spec: ExperimentSpec | None = None,
 ) -> dict[str, Any]:
@@ -333,6 +363,50 @@ def run_cybergym_agent_task(
         # container lifecycle (setup/teardown) is driven by the engine
     else:
         env = HostEnv(workspace_root=workspace_root)
+    # Checkpoint/resume: one SQLite file per task so a killed or
+    # budget-exhausted attempt can continue from its last completed step.
+    checkpoint_store = None
+    checkpoint_db = ""
+    checkpoint_thread = ""
+    resume_from = None
+    resumed_from_step: int | None = None
+    if continue_from_checkpoint and checkpoint_dir is None:
+        raise ValueError(
+            "continue_from_checkpoint requires a checkpoint_dir"
+        )
+    if checkpoint_dir is not None:
+        from qitos.checkpoint import CheckpointConfig, SqliteCheckpointStore
+
+        ckpt_root = Path(checkpoint_dir).expanduser().resolve()
+        ckpt_root.mkdir(parents=True, exist_ok=True)
+        checkpoint_db = str(ckpt_root / f"{task_slug(task.id)}.sqlite")
+        checkpoint_thread = _checkpoint_thread_id(task)
+        checkpoint_store = SqliteCheckpointStore(checkpoint_db)
+        try:
+            latest = next(
+                checkpoint_store.list(
+                    CheckpointConfig(thread_id=checkpoint_thread), limit=1
+                ),
+                None,
+            )
+            if (
+                continue_from_checkpoint
+                and latest is not None
+                and _is_resumable_checkpoint(latest.checkpoint)
+            ):
+                resume_from = CheckpointConfig(
+                    thread_id=checkpoint_thread,
+                    checkpoint_id=latest.checkpoint.id,
+                )
+                resumed_from_step = int(latest.checkpoint.step)
+            elif latest is not None:
+                # A completed run or a deliberate fresh start must not leave a
+                # stale chain that a later --continue-from-checkpoint would pick up.
+                _clear_checkpoint_thread(checkpoint_store, checkpoint_thread)
+        except Exception:
+            checkpoint_store.close()
+            raise
+
     stop_criteria = [
         PoCVerificationCriteria(),
         FinalResultCriteria(),
@@ -355,17 +429,21 @@ def run_cybergym_agent_task(
     tui_log_file = str(Path(str(trace_writer.run_dir)) / "tui.log")
 
     try:
+        engine_kwargs: dict[str, Any] = {
+            "budget": RuntimeBudget(
+                max_steps=internal_step_limit,
+                max_runtime_seconds=float(max_runtime_seconds),
+            )
+        }
+        if checkpoint_store is not None:
+            engine_kwargs["checkpoint_store"] = checkpoint_store
         result = agent.run(
             task=task,
             return_state=True,
             env=env,
             stop_criteria=stop_criteria,
-            engine_kwargs={
-                "budget": RuntimeBudget(
-                    max_steps=internal_step_limit,
-                    max_runtime_seconds=float(max_runtime_seconds),
-                )
-            },
+            engine_kwargs=engine_kwargs,
+            resume_from=resume_from,
             workspace=workspace_root,
             context_config=context_config,
             trace=trace_writer,
@@ -388,6 +466,8 @@ def run_cybergym_agent_task(
         close = getattr(env, "close", None)
         if callable(close):
             close()
+        if checkpoint_store is not None:
+            checkpoint_store.close()
 
     return {
         "task_id": task.id,
@@ -397,6 +477,9 @@ def run_cybergym_agent_task(
         "final_result": result.state.final_result,
         "step_count": result.step_count,
         "task_result": result.task_result.to_dict() if result.task_result is not None else None,
+        "checkpoint_db": checkpoint_db,
+        "checkpoint_thread": checkpoint_thread,
+        "resumed_from_step": resumed_from_step,
     }
 
 
@@ -471,6 +554,10 @@ def run_cybergym_task(
         max_runtime_seconds=max_runtime_seconds,
         trace_logdir=trace_logdir,
         trace_prefix=str(environment.get("trace_prefix") or "qitos_cybergym"),
+        checkpoint_dir=environment.get("checkpoint_dir") or None,
+        continue_from_checkpoint=bool(
+            environment.get("continue_from_checkpoint", False)
+        ),
         run_spec=effective_spec,
         experiment_spec=experiment_spec,
     )

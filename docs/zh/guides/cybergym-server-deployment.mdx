@@ -410,8 +410,13 @@ bash deploy/cybergym/score.sh --since "2026-11-06 08:00:00"
 
 ## 重启与续跑语义
 
-- 跑批进程**没有 checkpoint**。任务执行中被杀，下次会从第 0 步重跑该任务。
+- checkpoint 是可选能力。加上 `--checkpoint-dir "$RUN_ROOT/checkpoints"` 会为每个任务持久化一个 SQLite checkpoint 文件；再加 `--continue-from-checkpoint` 就在下次运行时从该任务最后完成的步骤继续。
+- 只有墙钟预算耗尽（`budget_time`）、主动中断（`interrupt`）或进程被硬杀、没有留下停止结论的任务才会续跑；其它停止原因一律重新开始。
+- 每次尝试都重新获得 `max_runtime_seconds` 的墙钟预算；步数预算存在 state 里，跨续跑累计。最多丢失被杀时正在进行的那一步。
+- 不加这两个参数时行为不变：任务执行中被杀，下次仍从第 0 步重跑。
 - `--resume` 会跳过 `OUTPUT_JSONL` 里已经存在的任务——**无论成功还是失败**。要重试失败任务，先删掉结果文件里对应的行（以及对应轨迹目录）再重启。
+- `prepare_task_dir` 每次尝试都会清空任务工作区，避免上一轮的 PoC 污染；checkpoint 存放在工作区之外，因此不受清空影响。
+- `systemctl restart qitos-cybergym-batch@level1-a` 是安全的：已完成任务被跳过，未完成任务在开启续跑参数时从最后 checkpoint 继续，启动脚本的 `EXIT` trap 会清理本批容器。
 - `prepare_task_dir` 每次都会清空任务工作目录，旧 PoC 不会污染新一次尝试。
 - `systemctl restart qitos-cybergym-batch@level1-a` 是安全的：已完成任务会跳过，启动脚本的 `EXIT` trap 会清理本次跑批的容器。
 

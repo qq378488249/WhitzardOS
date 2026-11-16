@@ -88,6 +88,47 @@ CYBERGYM_MASK_MAP=/path/to/mask_map.json
 the masked id and the matching checksum in `submit.sh`, and the server can
 unmask it for grading.
 
+## Checkpoint and Resume
+
+CyberGym tasks can continue from their last completed step instead of restarting
+at step 0 after a wall-clock stop, an external kill, or an OOM.
+
+Checkpointing is opt-in:
+
+```bash
+# persist checkpoints while running
+python scripts/run_cybergym_batch.py ... --checkpoint-dir "$OUT_ROOT/checkpoints"
+
+# continue the latest resumable attempt of each task
+python scripts/run_cybergym_batch.py ... --continue-from-checkpoint
+```
+
+The recipe CLI accepts the same two flags (`--checkpoint-dir`,
+`--continue-from-checkpoint`); `--continue-from-checkpoint` defaults the
+directory to `<out_dir>/checkpoints`.
+
+Semantics:
+
+- One SQLite file per task (`<task_slug>.sqlite`) under the checkpoint
+  directory, outside the task workspace because `prepare_task_dir` wipes that
+  workspace on every attempt.
+- A checkpoint is written after every step, at a step boundary.
+- The checkpoint thread is `cybergym:<task_id>:<checksum>`; a regenerated task
+  package never resumes state from an older one.
+- A task resumes only when the previous attempt ended without a stop decision
+  or with `budget_time` / `interrupt`. Any other stop reason starts a fresh run
+  and clears the old chain.
+- Wall-clock budget is **per attempt** (`max_runtime_seconds` is granted again);
+  the step budget is carried in state and keeps accumulating.
+- The restored run keeps `state` but not the chat transcript (memory/history are
+  reset by the engine). The CyberGym agent is state-first, so findings,
+  candidates, attempts, and GDB counters survive.
+- At most the step that was in flight during the kill is lost.
+
+Trace `run_meta` exposes `checkpoint_thread_id`, `last_checkpoint_id`,
+`resumed_from_checkpoint`, and `resumed_from_step`; the runner's execution dict
+also reports `checkpoint_db` and `resumed_from_step`.
+
 ## Agent-Side Context Retention
 
 The CyberGym agent keeps the full step chain and uses content-level compression rather than round deletion:

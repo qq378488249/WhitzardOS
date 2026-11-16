@@ -29,10 +29,16 @@ def run_cybergym_recipe_task(
     max_runtime_seconds: float,
     trace_logdir: str,
     trace_prefix: str = "qitos_cybergym",
+    checkpoint_dir: str | None = None,
+    continue_from_checkpoint: bool = False,
 ) -> dict[str, Any]:
     out_root = Path(out_dir).expanduser().resolve()
     workspace_root = out_root / "workspace"
     workspace_root.mkdir(parents=True, exist_ok=True)
+    if continue_from_checkpoint and not checkpoint_dir:
+        # Sibling of workspace/: prepare_task_dir wipes the task dir on purpose,
+        # so checkpoints must live outside it to survive a re-run.
+        checkpoint_dir = str(out_root / "checkpoints")
     task_dir = prepare_task_dir(
         task_id=task_id,
         out_dir=workspace_root / task_slug(task_id),
@@ -50,6 +56,8 @@ def run_cybergym_recipe_task(
         max_runtime_seconds=max_runtime_seconds,
         trace_logdir=trace_logdir,
         trace_prefix=trace_prefix,
+        checkpoint_dir=checkpoint_dir,
+        continue_from_checkpoint=continue_from_checkpoint,
     )
 
 
@@ -71,6 +79,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-runtime-seconds", type=float, default=3600.0)
     parser.add_argument("--trace-logdir", default="runs/cybergym/traces")
     parser.add_argument("--trace-prefix", default="qitos_cybergym")
+    parser.add_argument(
+        "--checkpoint-dir",
+        default="",
+        help="Persist per-task checkpoints under this directory",
+    )
+    parser.add_argument(
+        "--continue-from-checkpoint",
+        action="store_true",
+        help="Continue a task from its latest resumable checkpoint",
+    )
     args = parser.parse_args(argv)
 
     result = run_cybergym_recipe_task(
@@ -86,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         max_runtime_seconds=float(args.max_runtime_seconds),
         trace_logdir=args.trace_logdir,
         trace_prefix=args.trace_prefix,
+        checkpoint_dir=args.checkpoint_dir or None,
+        continue_from_checkpoint=bool(args.continue_from_checkpoint),
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

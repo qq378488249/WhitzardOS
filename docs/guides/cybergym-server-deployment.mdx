@@ -410,10 +410,13 @@ Two placement rules matter as much as the concurrency number:
 
 ## Restart and resume semantics
 
-- The batch runner has **no checkpoint**. A process killed mid-task re-runs that task from step 0.
+- Checkpointing is opt-in. Add `--checkpoint-dir "$RUN_ROOT/checkpoints"` to persist one SQLite checkpoint file per task, and `--continue-from-checkpoint` to continue a task from its last completed step.
+- A task resumes only after a wall-clock stop (`budget_time`), an `interrupt`, or a hard kill that left no stop decision. A task that stopped for any other reason starts fresh.
+- The wall-clock budget is granted again for each attempt; the step budget is carried in state. At most the step that was in flight is lost.
+- Without those flags the behavior is unchanged: a process killed mid-task re-runs that task from step 0.
 - `--resume` skips every task already present in `OUTPUT_JSONL` — passed **or failed**. To retry a failed task, delete its line from the results file (and its trace directory) before restarting.
-- `prepare_task_dir` wipes the task workspace on every attempt, so stale PoCs from a previous run cannot leak in.
-- `systemctl restart qitos-cybergym-batch@level1-a` is safe: completed tasks are skipped, and the launcher's `EXIT` trap removes the batch's containers.
+- `prepare_task_dir` wipes the task workspace on every attempt, so stale PoCs from a previous run cannot leak in. Checkpoints live outside the workspace, so they survive that wipe.
+- `systemctl restart qitos-cybergym-batch@level1-a` is safe: completed tasks are skipped, unfinished tasks continue from their last checkpoint when the continue flag is on, and the launcher's `EXIT` trap removes the batch's containers.
 
 <Warning>
 Do not leave stale `.v14_gdb_launch.env` files in `RUN_ROOT` when you migrate a group to systemd. The launcher merges that file for tmux child modes, and while systemd environment values win over it, a stale port or endpoint in it is a needless source of confusion. Remove it after moving a group to systemd.

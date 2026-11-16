@@ -275,6 +275,13 @@ class _TraceRuntime(Generic[StateT]):
             except Exception as exc:
                 _logger.debug("Failed to list tools: %s", exc)
         env_info = engine._env_identity()
+        resume_info = dict(getattr(engine, "_resume_info", {}) or {})
+        checkpoint_thread_id = (
+            str(getattr(engine, "_active_run_id", "") or "")
+            if getattr(engine, "_checkpoint_store", None) is not None
+            else None
+        )
+        last_checkpoint_id = getattr(engine, "_last_checkpoint_id", None)
         return {
             "model_name": model_name,
             "model_family": (
@@ -303,6 +310,12 @@ class _TraceRuntime(Generic[StateT]):
                 if isinstance(getattr(engine, "experiment_spec", None), ExperimentSpec)
                 else None
             ),
+            "checkpoint_thread_id": checkpoint_thread_id,
+            "last_checkpoint_id": (
+                str(last_checkpoint_id) if last_checkpoint_id else None
+            ),
+            "resumed_from_checkpoint": resume_info.get("checkpoint_id"),
+            "resumed_from_step": resume_info.get("step"),
         }
 
     def record_parser_diagnostics(self, diagnostics: Dict[str, Any]) -> None:

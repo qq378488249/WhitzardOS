@@ -13,6 +13,12 @@ from qitos.benchmark.cybergym._imports import (
     resolve_cybergym_source_root,
 )
 import qitos.benchmark.cybergym.runner as cybergym_runner
+from qitos.checkpoint import (
+    Checkpoint,
+    CheckpointConfig,
+    CheckpointId,
+    SqliteCheckpointStore,
+)
 from qitos.recipes.benchmarks import cybergym
 
 
@@ -164,6 +170,151 @@ class CybergymRecipeTests(unittest.TestCase):
                 self.assertNotIn("cybergym.task", sys.modules)
 
 
+class CybergymCheckpointTests(unittest.TestCase):
+    def _fake_task(self, task_root, source_root):
+        return SimpleNamespace(
+            id="arvo:1065",
+            inputs={
+                "task_id": "arvo:1065",
+                "agent_id": "agent",
+                "checksum": "checksum",
+                "server_url": "http://server",
+                "source_root": str(source_root),
+                "repo_dir": str(task_root / "repo-vul"),
+                "task_root": str(task_root),
+                "description": "desc",
+                "error_txt": "",
+                "patch_diff": "",
+            },
+        )
+
+    def _run(self, task_root, source_root, checkpoint_dir=None, continue_from_checkpoint=False):
+        fake_task = self._fake_task(task_root, source_root)
+        fake_agent = mock.Mock()
+        fake_agent.run.return_value = SimpleNamespace(
+            state=SimpleNamespace(stop_reason="final", final_result="ok"),
+            step_count=1,
+            task_result=None,
+        )
+
+        with mock.patch(
+            "qitos.benchmark.cybergym.agent.adapter.CyberGymAdapter"
+        ) as adapter_cls, mock.patch(
+            "qitos.benchmark.cybergym.agent.cli.build_agent",
+            return_value=fake_agent,
+        ), mock.patch(
+            "qitos.benchmark.cybergym.agent.stop_criteria.PoCVerificationCriteria",
+            return_value=object(),
+        ), mock.patch.object(cybergym_runner, "HostEnv"):
+            adapter_cls.return_value.from_task_dir.return_value = fake_task
+            result = cybergym_runner.run_cybergym_agent_task(
+                task_dir=str(task_root),
+                model_name="GLM-5.1",
+                api_key="key",
+                base_url="http://model/v1",
+                server="http://server",
+                max_steps=None,
+                max_runtime_seconds=3600,
+                trace_logdir=str(task_root / "traces"),
+                checkpoint_dir=checkpoint_dir,
+                continue_from_checkpoint=continue_from_checkpoint,
+            )
+
+        return fake_task, fake_agent, result
+
+    def _seed_checkpoint(self, checkpoint_dir, task, step, stop_reason):
+        thread = cybergym_runner._checkpoint_thread_id(task)
+        db_path = Path(checkpoint_dir) / f"{task_slug(task.id)}.sqlite"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        with SqliteCheckpointStore(str(db_path)) as store:
+            store.put(
+                CheckpointConfig(thread_id=thread),
+                Checkpoint(
+                    id=CheckpointId(f"cp-{step}"),
+                    thread_id=thread,
+                    step=step,
+                    state_data={
+                        "task": "desc",
+                        "current_step": step,
+                        "max_steps": 30,
+                        "stop_reason": stop_reason,
+                    },
+                    state_type="some.module.SomeState",
+                ),
+                {"source": "loop", "step": step},
+                {},
+            )
+
+    def test_checkpoint_dir_is_wired_into_the_engine(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            task_root = Path(tmpdir).resolve()
+            source_root = task_root / "repo-vul" / "project"
+            source_root.mkdir(parents=True)
+            ckpt_dir = task_root / "checkpoints"
+
+            _, fake_agent, result = self._run(
+                task_root, source_root, checkpoint_dir=str(ckpt_dir)
+            )
+
+            run_kwargs = fake_agent.run.call_args.kwargs
+            store = run_kwargs["engine_kwargs"]["checkpoint_store"]
+            self.assertIsInstance(store, SqliteCheckpointStore)
+            self.assertIsNone(run_kwargs["resume_from"])
+            self.assertTrue((ckpt_dir / "arvo_1065.sqlite").exists())
+            self.assertEqual(result["checkpoint_db"], str(ckpt_dir / "arvo_1065.sqlite"))
+            self.assertIsNone(result["resumed_from_step"])
+
+    def test_resumable_checkpoint_is_resumed(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            task_root = Path(tmpdir).resolve()
+            source_root = task_root / "repo-vul" / "project"
+            source_root.mkdir(parents=True)
+            ckpt_dir = task_root / "checkpoints"
+            seeded = self._fake_task(task_root, source_root)
+            self._seed_checkpoint(ckpt_dir, seeded, step=4, stop_reason="budget_time")
+
+            _, fake_agent, result = self._run(
+                task_root,
+                source_root,
+                checkpoint_dir=str(ckpt_dir),
+                continue_from_checkpoint=True,
+            )
+
+            resume_from = fake_agent.run.call_args.kwargs["resume_from"]
+            self.assertIsInstance(resume_from, CheckpointConfig)
+            self.assertEqual(str(resume_from.checkpoint_id), "cp-4")
+            self.assertEqual(result["resumed_from_step"], 4)
+            self.assertEqual(
+                result["checkpoint_thread"],
+                cybergym_runner._checkpoint_thread_id(seeded),
+            )
+
+    def test_completed_checkpoint_is_not_resumed(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            task_root = Path(tmpdir).resolve()
+            source_root = task_root / "repo-vul" / "project"
+            source_root.mkdir(parents=True)
+            ckpt_dir = task_root / "checkpoints"
+            seeded = self._fake_task(task_root, source_root)
+            self._seed_checkpoint(ckpt_dir, seeded, step=6, stop_reason="final")
+
+            _, fake_agent, result = self._run(
+                task_root,
+                source_root,
+                checkpoint_dir=str(ckpt_dir),
+                continue_from_checkpoint=True,
+            )
+
+            self.assertIsNone(fake_agent.run.call_args.kwargs["resume_from"])
+            self.assertIsNone(result["resumed_from_step"])
+
+            thread = cybergym_runner._checkpoint_thread_id(seeded)
+            with SqliteCheckpointStore(str(ckpt_dir / "arvo_1065.sqlite")) as store:
+                self.assertEqual(
+                    list(store.list(CheckpointConfig(thread_id=thread))), []
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -182,7 +333,7 @@ class CybergymMaskMapTests(unittest.TestCase):
     def test_mask_map_env_points_to_existing_file(self):
         from qitos.benchmark.cybergym.runtime import _resolve_mask_map_path
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             mask = Path(tmpdir) / "mask_map.json"
             mask.write_text("{}", encoding="utf-8")
             with mock.patch.dict("os.environ", {"CYBERGYM_MASK_MAP": str(mask)}):
@@ -223,4 +374,3 @@ class CybergymDockerImageTests(unittest.TestCase):
                 cybergym_runner.resolve_docker_image("arvo:1065"),
                 "local/arvo-1065:tag",
             )
-

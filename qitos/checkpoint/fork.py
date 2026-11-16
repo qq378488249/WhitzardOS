@@ -59,6 +59,7 @@ def fork_checkpoint(
         parent_id=source.id,
         created_at=source.created_at,
         schema_version=source.schema_version,
+        state_type=source.state_type,
     )
 
     metadata: CheckpointMetadata = {

@@ -71,6 +71,11 @@ TMUX_SESSION="${TMUX_SESSION:-jcy-${GROUP_NAME}}"
 TRACE_PREFIX="${TRACE_PREFIX:-qitos_${GROUP_NAME}_glm-51}"
 OUTPUT_JSONL="${OUTPUT_JSONL:-${RUN_ROOT}/cybergym_${GROUP_NAME}.jsonl}"
 REPORT_JSONL="${REPORT_JSONL:-${RUN_ROOT}/cybergym_${GROUP_NAME}.report.jsonl}"
+# Optional checkpoint/resume. CHECKPOINT_DIR persists one SQLite checkpoint per
+# task outside the workspace; CONTINUE_FROM_CHECKPOINT=1 resumes a task from its
+# last completed step. Both default off.
+CHECKPOINT_DIR="${CHECKPOINT_DIR:-}"
+CONTINUE_FROM_CHECKPOINT="${CONTINUE_FROM_CHECKPOINT:-0}"
 # --run may target an external verification server via SERVER_URL. Only derive
 # it from SERVER_HOST/SERVER_PORT when the caller did not provide one.
 if [[ -z "${SERVER_URL:-}" && -n "${SERVER_PORT:-}" ]]; then
@@ -138,6 +143,8 @@ write_runtime_config() {
     printf 'TRACE_PREFIX=%q\n' "$TRACE_PREFIX"
     printf 'OUTPUT_JSONL=%q\n' "$OUTPUT_JSONL"
     printf 'REPORT_JSONL=%q\n' "$REPORT_JSONL"
+    printf 'CHECKPOINT_DIR=%q\n' "$CHECKPOINT_DIR"
+    printf 'CONTINUE_FROM_CHECKPOINT=%q\n' "$CONTINUE_FROM_CHECKPOINT"
   } > "$RUNTIME_CONFIG"
   chmod 600 "$RUNTIME_CONFIG"
 }
@@ -208,6 +215,14 @@ run_batch() {
   }
   trap cleanup_and_exit EXIT HUP INT TERM
 
+  local checkpoint_args=()
+  if [[ -n "$CHECKPOINT_DIR" ]]; then
+    checkpoint_args+=(--checkpoint-dir "$CHECKPOINT_DIR")
+  fi
+  if [[ "$CONTINUE_FROM_CHECKPOINT" == "1" ]]; then
+    checkpoint_args+=(--continue-from-checkpoint)
+  fi
+
   "$PYTHON_BIN" -u "$QITOS_ROOT/scripts/run_cybergym_batch.py" \
     --data-dir "$DATA_DIR" \
     --out-root "$RUN_ROOT" \
@@ -224,6 +239,7 @@ run_batch() {
     --trace-prefix "$TRACE_PREFIX" \
     --output-jsonl "$OUTPUT_JSONL" \
     --report-jsonl "$REPORT_JSONL" \
+    ${checkpoint_args[@]+"${checkpoint_args[@]}"} \
     --resume &
   batch_pid=$!
 

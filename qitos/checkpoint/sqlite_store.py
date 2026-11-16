@@ -8,10 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence
-from uuid import uuid4
+from typing import Any, Iterator, List, Optional, Sequence
 
 from .store import (
     Checkpoint,
@@ -35,7 +32,8 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     versions_seen  TEXT NOT NULL DEFAULT '{}',  -- JSON
     parent_id      TEXT,
     created_at     TEXT NOT NULL,
-    schema_version TEXT NOT NULL DEFAULT 'v2'
+    schema_version TEXT NOT NULL DEFAULT 'v2',
+    state_type     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS checkpoint_writes (
@@ -77,7 +75,17 @@ class SqliteCheckpointStore(CheckpointStore):
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.executescript(_SCHEMA_SQL)
+        self._migrate_schema()
         self._conn.commit()
+
+    def _migrate_schema(self) -> None:
+        """Add columns introduced after a database was created."""
+        columns = {
+            row[1]
+            for row in self._conn.execute("PRAGMA table_info(checkpoints)").fetchall()
+        }
+        if "state_type" not in columns:
+            self._conn.execute("ALTER TABLE checkpoints ADD COLUMN state_type TEXT")
 
     def close(self) -> None:
         """Close the database connection."""
@@ -97,7 +105,7 @@ class SqliteCheckpointStore(CheckpointStore):
         (
             cp_id, thread_id, step,
             state_data_json, state_versions_json, versions_seen_json,
-            parent_id, created_at, schema_version,
+            parent_id, created_at, schema_version, state_type,
         ) = row
         return Checkpoint(
             id=CheckpointId(cp_id),
@@ -109,6 +117,7 @@ class SqliteCheckpointStore(CheckpointStore):
             parent_id=parent_id,
             created_at=created_at,
             schema_version=schema_version,
+            state_type=state_type,
         )
 
     def _load_pending_writes(self, checkpoint_id: str) -> List[PendingWrite]:
@@ -174,8 +183,8 @@ class SqliteCheckpointStore(CheckpointStore):
             self._conn.execute(
                 "INSERT OR REPLACE INTO checkpoints "
                 "(checkpoint_id, thread_id, step, state_data, state_versions, "
-                "versions_seen, parent_id, created_at, schema_version) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "versions_seen, parent_id, created_at, schema_version, state_type) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     checkpoint.id,
                     checkpoint.thread_id,
@@ -186,6 +195,7 @@ class SqliteCheckpointStore(CheckpointStore):
                     checkpoint.parent_id,
                     checkpoint.created_at,
                     checkpoint.schema_version,
+                    checkpoint.state_type,
                 ),
             )
             # metadata
@@ -212,7 +222,7 @@ class SqliteCheckpointStore(CheckpointStore):
             return None
         cur = self._conn.execute(
             "SELECT checkpoint_id, thread_id, step, state_data, state_versions, "
-            "versions_seen, parent_id, created_at, schema_version "
+            "versions_seen, parent_id, created_at, schema_version, state_type "
             "FROM checkpoints WHERE checkpoint_id = ?",
             (cp_id,),
         )
@@ -244,7 +254,7 @@ class SqliteCheckpointStore(CheckpointStore):
         params: list = [config.thread_id]
         sql = (
             "SELECT checkpoint_id, thread_id, step, state_data, state_versions, "
-            "versions_seen, parent_id, created_at, schema_version "
+            "versions_seen, parent_id, created_at, schema_version, state_type "
             "FROM checkpoints WHERE thread_id = ?"
         )
         if before is not None and before.checkpoint_id is not None:

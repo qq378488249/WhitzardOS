@@ -94,6 +94,11 @@ class Checkpoint:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     schema_version: str = "v2"
+    # Module-qualified state class name, e.g.
+    # ``qitos.benchmark.cybergym.agent.state_models.core.CyberGymState``.
+    # Resume needs it to rebuild subclass states: ``StateSchema.from_dict`` is
+    # strict and rejects subclass fields when the wrong class is used.
+    state_type: Optional[str] = None
 
     # ---- serialization helpers ----
 
@@ -112,6 +117,7 @@ class Checkpoint:
             "parent_id": self.parent_id,
             "created_at": self.created_at,
             "schema_version": self.schema_version,
+            "state_type": self.state_type,
         }
 
     @classmethod
@@ -135,6 +141,7 @@ class Checkpoint:
             parent_id=payload.get("parent_id"),
             created_at=payload.get("created_at", ""),
             schema_version=payload.get("schema_version", "v2"),
+            state_type=payload.get("state_type"),
         )
 
 

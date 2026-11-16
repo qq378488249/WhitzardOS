@@ -154,6 +154,31 @@ done < "$TASKS_FILE" | tee runs/cybergym/run-100.log
 
 小并发时可以自行改成 `xargs -P 2` 或 `xargs -P 4`，但建议先验证模型端和服务器端的稳定性。
 
+### 断点续跑
+
+任务撞墙钟、被外部杀掉或 OOM 后，可以从最后完成的步骤继续，而不是从第 0 步重跑。该能力默认关闭：
+
+```bash
+# 持久化每个任务的 checkpoint
+python scripts/run_cybergym_batch.py ... --checkpoint-dir "$OUT_ROOT/checkpoints"
+
+# 下次运行时从最新可续跑的 checkpoint 继续
+python scripts/run_cybergym_batch.py ... --continue-from-checkpoint
+```
+
+recipe CLI（`--checkpoint-dir`、`--continue-from-checkpoint`）参数相同；只给 `--continue-from-checkpoint` 时，目录默认是 `<out_dir>/checkpoints`。
+
+语义要点：
+
+- 每个任务一个 SQLite 文件（`<task_slug>.sqlite`），放在任务工作区之外，因为 `prepare_task_dir` 每次尝试都会清空工作区。
+- checkpoint 在每个步骤边界写入；被杀时最多丢失正在进行的那一步。
+- checkpoint 线程是 `cybergym:<task_id>:<checksum>`，任务包重新生成后不会沿用旧状态。
+- 只有「没有停止结论」或 `budget_time` / `interrupt` 的上一轮才会续跑；其它停止原因会重新开始并清空旧链。
+- 墙钟预算按每次尝试重新计算；步数预算存在 state 里，跨续跑累计。
+- 续跑恢复 state，但不恢复对话历史（memory/history 会被引擎重置）。CyberGym agent 是 state-first 的，发现、候选、尝试记录、GDB 计数都会保留。
+
+轨迹 `run_meta` 中可以看到 `checkpoint_thread_id`、`last_checkpoint_id`、`resumed_from_checkpoint`、`resumed_from_step`。
+
 ## 批量验证
 
 CyberGym 的公开 `/submit-vul` 只返回漏洞侧结果。完整基准测试判定还需要修复侧验证。

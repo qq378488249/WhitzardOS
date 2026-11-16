@@ -57,10 +57,33 @@ from qitos.checkpoint import CheckpointConfig
 config = CheckpointConfig(thread_id="my-run-001")
 
 # Resume the run
-result = engine.run("Continue the analysis", checkpoint_config=config)
+result = engine.resume_from_checkpoint(config)
 ```
 
-The Engine restores the state from the latest checkpoint and continues execution from where it left off.
+The Engine rebuilds the state recorded with the checkpoint and continues at
+`checkpoint.step + 1` on the same thread, so later checkpoints keep growing one
+chain. Leave `checkpoint_id` out of the config to pick the newest checkpoint.
+
+- Checkpoints record their state class (`state_type`), so subclass states are
+  rebuilt with all their fields. Pass `state_cls=...` to override.
+- The previous attempt's `stop_reason` is cleared; `final_result` is kept.
+- The task text stored in the state is reused. For a structured task, pass the
+  original object so its budget and metadata survive:
+  `engine.resume_from_checkpoint(config, task=task)`.
+- Memory and conversation history are not restored. The resumed run rebuilds its
+  prompt from state, which is enough for state-first agents.
+- The wall-clock budget (`max_runtime_seconds`) starts fresh for each attempt;
+  the step budget lives in state and keeps accumulating.
+
+When the run is driven through an agent, pass the same config to `run()`:
+
+```python
+result = agent.run(
+    task,
+    resume_from=config,
+    engine_kwargs={"checkpoint_store": store},
+)
+```
 
 ## Step 3: Forking a Checkpoint
 
@@ -78,11 +101,8 @@ source_config = CheckpointConfig(
 # Fork into a new thread (true branch)
 fork_config = fork_checkpoint(store, source_config, new_thread_id="my-run-001-branch-a")
 
-# Run the agent from the forked state with a different prompt
-result = engine.run(
-    "Try a different strategy",
-    checkpoint_config=fork_config,
-)
+# Continue from the forked state
+result = engine.resume_from_checkpoint(fork_config, task="Try a different strategy")
 ```
 
 The original run is untouched. The forked run starts from the same state but can follow a different path.
@@ -102,7 +122,9 @@ config = CheckpointConfig(
 time_travel_config = fork_checkpoint(store, config)
 
 # Re-run from the earlier state
-result = engine.run("Redo from step 2 with modified instructions", checkpoint_config=time_travel_config)
+result = engine.resume_from_checkpoint(
+    time_travel_config, task="Redo from step 2 with modified instructions"
+)
 ```
 
 ## Step 5: Durability Modes

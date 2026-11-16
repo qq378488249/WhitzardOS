@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import sys
@@ -9,7 +10,7 @@ import time
 import traceback
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar, cast
 from uuid import uuid4
 
 _logger = logging.getLogger("qitos.engine")
@@ -419,6 +420,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
         self._durability_manager: Optional[DurabilityManager] = None
         self._pending_write_manager: Optional[PendingWriteManager] = None
         self._last_checkpoint_id: Optional[CheckpointId] = None
+        self._resume_info: Dict[str, Any] = {}
 
         if checkpoint_store is not None:
             self._durability_manager = DurabilityManager(checkpoint_store, mode=checkpoint_durability)
@@ -784,6 +786,9 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
         # Check for resume-from-checkpoint internal kwargs
         _resume_state = kwargs.pop("_resume_state", None)
         _resume_step = kwargs.pop("_resume_step", None)
+        _resume_run_id = kwargs.pop("_resume_run_id", None)
+        if _resume_state is None:
+            self._resume_info = {}
 
         self._reset_run_state()
         # Wire delegate interceptor to engine's event list
@@ -804,7 +809,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
                 self.recovery_policy.reset()
             except Exception as exc:
                 _logger.debug("Failed to reset recovery_policy: %s", exc)
-        self._active_run_id = (
+        self._active_run_id = _resume_run_id or (
             str(getattr(self.trace_writer, "run_id", "")).strip()
             if self.trace_writer is not None
             else ""
@@ -1296,7 +1301,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
                     and self._cancel_token.mode == CancelMode.AFTER_STEP
                 ):
                     self._save_checkpoint_if_needed(
-                        state, step_id - 1, force=True
+                        step_id - 1, state, task_text, task_obj
                     )
                     self._emit(
                         step_id - 1,
@@ -1317,7 +1322,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
             # Checkpoint on cancellation (immediate mode)
             if self._cancel_token.is_cancel_requested and self._checkpoint_store is not None:
                 try:
-                    self._save_checkpoint(state, step_id)
+                    self._save_checkpoint(step_id, state, task_text)
                 except Exception as exc:
                     _logger.warning("Checkpoint save failed during cancellation: %s", exc)
             # Flush durability manager on run end
@@ -1734,6 +1739,7 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
             versions_seen={},
             pending_writes=[],
             parent_id=self._last_checkpoint_id,
+            state_type=self._state_type_name(state),
         )
 
         metadata: CheckpointMetadata = {
@@ -1757,11 +1763,23 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
     def resume_from_checkpoint(
         self,
         config: CheckpointConfig,
+        *,
+        task: Task | str | None = None,
+        state_cls: Optional[type] = None,
     ) -> EngineResult:
         """Resume a run from a saved checkpoint.
 
+        The run continues at ``checkpoint.step + 1`` on the checkpoint's own
+        thread, so later checkpoints keep accumulating in one chain.
+
         Args:
             config: CheckpointConfig pointing to the checkpoint to resume from.
+                A config without ``checkpoint_id`` resumes the newest checkpoint
+                of the thread.
+            task: Original task, as a ``Task`` or plain text. Defaults to the
+                task text stored in the checkpoint state.
+            state_cls: State class used to rebuild the snapshot. Defaults to the
+                class recorded in the checkpoint, then the engine's active state.
 
         Returns:
             EngineResult from the resumed run.
@@ -1774,17 +1792,46 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
             raise ValueError(f"Checkpoint not found: {config}")
 
         checkpoint = tuple_.checkpoint
-        state = type(self._active_state or StateSchema).from_dict(checkpoint.state_data)  # type: ignore[misc]
+        resolved_state_cls = cast(
+            "type[StateSchema]",
+            self._resolve_checkpoint_state_cls(checkpoint, state_cls),
+        )
+        state = resolved_state_cls.from_dict(checkpoint.state_data)
 
-        # Restore version tracker
+        # The previous attempt's terminal marker must not leak into the
+        # continued run; final_result is kept because it may hold durable work.
+        state.stop_reason = None
+        # A checkpoint is written before the loop's advance_step(), so its
+        # state still carries the completed step. Align it with the step the
+        # resumed loop will run, matching a fresh run's invariant
+        # (step_id == state.current_step at the top of the loop).
+        state.current_step = checkpoint.step + 1
+
         if self._version_tracker is not None:
             self._version_tracker.apply_versions(checkpoint.state_versions)
 
-        # Set up internal state for resume
+        task_value = task if task is not None else (
+            getattr(state, "task", "") or self._active_task
+        )
+        if not task_value:
+            raise ValueError(
+                "Cannot resume: checkpoint carries no task text; pass task=..."
+            )
+        if task is not None:
+            # Keep the restored state coherent with the task the caller resumes
+            # with: prompts and observations are rebuilt from state.task.
+            _, explicit_task_text = self._normalize_task(task)
+            if explicit_task_text:
+                state.task = explicit_task_text
+
         self._active_run_id = checkpoint.thread_id
         self._last_checkpoint_id = checkpoint.id
-        self._active_task = tuple_.metadata.get("run_id", "")
         self._active_state = state  # type: ignore[assignment]
+        self._resume_info = {
+            "checkpoint_id": str(checkpoint.id),
+            "step": int(checkpoint.step),
+            "thread_id": checkpoint.thread_id,
+        }
 
         # Load pending writes for crash recovery
         if self._pending_write_manager is not None:
@@ -1796,10 +1843,44 @@ class Engine(Generic[StateT, ObservationT, ActionT]):
 
         # Continue the run from the next step
         return self.run(
-            self._active_task,
+            task_value,
             _resume_state=state,
             _resume_step=checkpoint.step + 1,
+            _resume_run_id=checkpoint.thread_id,
         )
+
+    @staticmethod
+    def _state_type_name(state: Any) -> str:
+        cls = type(state)
+        return f"{cls.__module__}.{cls.__qualname__}"
+
+    def _resolve_checkpoint_state_cls(
+        self,
+        checkpoint: Checkpoint,
+        explicit: Optional[type],
+    ) -> type:
+        if explicit is not None:
+            return explicit
+        recorded = str(checkpoint.state_type or "").strip()
+        if recorded:
+            module_name, _, class_name = recorded.rpartition(".")
+            if module_name and class_name:
+                try:
+                    module = importlib.import_module(module_name)
+                    candidate = getattr(module, class_name)
+                except (ImportError, AttributeError) as exc:
+                    _logger.warning(
+                        "Cannot import checkpoint state type %s: %s", recorded, exc
+                    )
+                else:
+                    if isinstance(candidate, type) and issubclass(candidate, StateSchema):
+                        return candidate
+                    _logger.warning(
+                        "Checkpoint state type %s is not a StateSchema", recorded
+                    )
+        if self._active_state is not None:
+            return type(self._active_state)
+        return StateSchema
 
     def resume(
         self,

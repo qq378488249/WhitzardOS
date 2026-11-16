@@ -234,7 +234,7 @@ class TestCancelInEngine:
 
         # Schedule a cancel after a short delay
         def cancel_after():
-            time.sleep(0.1)
+            time.sleep(0.02)
             token.request_cancel("immediate")
 
         t = threading.Thread(target=cancel_after)
@@ -259,7 +259,7 @@ class TestCancelInEngine:
         token = engine._cancel_token
 
         def cancel_after():
-            time.sleep(0.1)
+            time.sleep(0.02)
             token.request_cancel("after_step")
 
         t = threading.Thread(target=cancel_after)

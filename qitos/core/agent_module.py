@@ -286,9 +286,15 @@ class AgentModule(ABC, Generic[StateT, ObservationT, ActionT]):
         theme: str = "research",
         run_spec: RunSpec | Dict[str, Any] | None = None,
         experiment_spec: ExperimentSpec | Dict[str, Any] | None = None,
+        resume_from: Any = None,
         **state_kwargs: Any,
     ) -> Any:
-        """Execute task with Engine using plain text objective or structured Task."""
+        """Execute task with Engine using plain text objective or structured Task.
+
+        ``resume_from`` accepts a ``qitos.checkpoint.CheckpointConfig``; when set
+        the engine restores that checkpoint's state and continues from the next
+        step instead of starting at step 0.
+        """
         kwargs = dict(engine_kwargs or {})
         self._merge_run_defaults(
             kwargs=kwargs,
@@ -333,7 +339,11 @@ class AgentModule(ABC, Generic[StateT, ObservationT, ActionT]):
             run_spec=resolved_run_spec,
             experiment_spec=resolved_experiment_spec,
         )
-        result = engine.run(task, **state_kwargs)
+        result = (
+            engine.run(task, **state_kwargs)
+            if resume_from is None
+            else engine.resume_from_checkpoint(resume_from, task=task)
+        )
         if return_state:
             return result
         return result.state.final_result

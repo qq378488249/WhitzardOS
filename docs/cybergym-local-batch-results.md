@@ -110,8 +110,11 @@ later groups are not capped at 43 k input tokens.
   memory under load — WSL and Docker Desktop then restart and silently kill
   every running task. Groups are kept at three and the free space is checked
   before each group.
-- There is no checkpoint/resume in the CyberGym runner: a killed task restarts
-  from step 0, so a group that dies mid-way has to be relaunched.
+- Checkpoint/resume is opt-in (`--checkpoint-dir`, `--continue-from-checkpoint`).
+  With it, a task that stopped on `budget_time` or was killed continues from its
+  last completed step; without it, a killed task restarts from step 0 and a
+  group that dies mid-way has to be relaunched. See
+  [Checkpoint and Resume](benchmarks/cybergym.mdx#checkpoint-and-resume).
 
 ## Environment fixes (2026-11-03/04)
 

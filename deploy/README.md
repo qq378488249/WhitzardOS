@@ -231,7 +231,7 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml down
 docker compose --env-file cybergym/.env -f cybergym/compose.yaml up -d
 ```
 
-- 跑批进程**没有 checkpoint**：中途被杀，该任务会从第 0 步重跑。
+- 断点续跑默认关闭：中途被杀，该任务从第 0 步重跑。设置 `CHECKPOINT_DIR`（例如 `${RUN_ROOT}/checkpoints`）并令 `CONTINUE_FROM_CHECKPOINT=1` 后，撞墙钟或被硬杀的任务会从最后完成的步骤继续；墙钟预算按每次尝试重新计算，步数预算继续累计。
 - `--resume` 会跳过 `OUTPUT_JSONL` 中已有的任务，**失败任务也会跳过**。每跑完一个任务结果就立即落盘，所以批处理中途崩溃后重启，只会重跑崩溃时正在进行的那个任务。要重试某个任务，删掉结果文件里对应那一行和它的 `traces/` 目录，再启动。
 - 同一时刻还会写一份简洁的每任务简报 `REPORT_JSONL`（默认与 `OUTPUT_JSONL` 同目录、文件名加 `.report`）。每完成一个任务追加一行，适合 `tail -f`：
   ```json

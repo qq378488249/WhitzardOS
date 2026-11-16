@@ -14,9 +14,11 @@ Documentation=https://qitor.mintlify.app/guides/cybergym-server-deployment
 Requires=qitos-cybergym-server@%i.service
 Wants=network-online.target
 After=qitos-cybergym-server@%i.service docker.service network-online.target
-# The runner has no checkpoint: a restart loses the in-flight task's steps and
-# re-runs it from zero. Completed tasks are skipped by --resume, so a bounded
-# restart is safe, but keep the burst limit low to avoid a crash loop.
+# Checkpoints are opt-in. With CHECKPOINT_DIR set and CONTINUE_FROM_CHECKPOINT=1
+# a task that hit its wall-clock budget or was killed continues from its last
+# completed step; otherwise a restart re-runs the in-flight task from zero.
+# Completed tasks are skipped by --resume either way, so a bounded restart is
+# safe, but keep the burst limit low to avoid a crash loop.
 StartLimitIntervalSec=600
 StartLimitBurst=3
 
