@@ -24,7 +24,7 @@
 ```bash
 # 在 deploy/ 目录
 docker load -i images/cage-claude-code-cyberdebug.tar.gz
-docker load -i images/qitos-cybergym-runner-1.0.6.tar.gz
+docker load -i images/qitos-cybergym-runner-1.0.7.tar.gz
 
 cp cybergym/.env.compose.example cybergym/.env
 chmod 600 cybergym/.env
