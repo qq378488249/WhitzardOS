@@ -177,6 +177,24 @@ recipe CLI（`--checkpoint-dir`、`--continue-from-checkpoint`）参数相同；
 - 墙钟预算按每次尝试重新计算；步数预算存在 state 里，跨续跑累计。
 - 续跑恢复 state，但不恢复对话历史（memory/history 会被引擎重置）。CyberGym agent 是 state-first 的，发现、候选、尝试记录、GDB 计数都会保留。
 
+### 超时任务重跑
+
+`--resume` 默认把 `OUTPUT_JSONL` 里的每一行都当作已完成（包括失败）。传入
+`--retry-timeout` 后，上一轮停在 `budget_time` / `interrupt` 的任务会重新排队：
+
+```bash
+python scripts/run_cybergym_batch.py ... --resume --retry-timeout --max-attempts 3
+```
+
+- 每个结果行用 `metadata.attempts` 记录已完成的尝试次数。只有次数低于
+  `--max-attempts`（默认 `3`）的任务才会重跑，反复超时不会无限消耗预算。
+- 成功行和其他停止原因的行仍然跳过。
+- 新一次尝试会替换该任务在 `OUTPUT_JSONL` 中的旧行，简洁简报保持每任务一行。
+- 与 `--continue-from-checkpoint` 一起用时从最后完成的步骤继续；不开启
+  checkpoint 时，重跑是一次全新的尝试。
+- 部署启动器默认开启（`RETRY_TIMEOUT=1`、`MAX_ATTEMPTS=3`）；设
+  `RETRY_TIMEOUT=0` 可恢复“已有结果一律跳过”的旧行为。
+
 轨迹 `run_meta` 中可以看到 `checkpoint_thread_id`、`last_checkpoint_id`、`resumed_from_checkpoint`、`resumed_from_step`。
 
 ## 批量验证

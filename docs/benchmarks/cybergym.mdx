@@ -125,6 +125,28 @@ Semantics:
   candidates, attempts, and GDB counters survive.
 - At most the step that was in flight during the kill is lost.
 
+### Retrying timed-out tasks
+
+`--resume` normally treats every row in `OUTPUT_JSONL` as finished, including
+failures. Pass `--retry-timeout` to re-queue tasks whose previous attempt
+stopped at `budget_time` or `interrupt`:
+
+```bash
+python scripts/run_cybergym_batch.py ... --resume --retry-timeout --max-attempts 3
+```
+
+- Each result row records `metadata.attempts`. A task is retried only while its
+  attempts are below `--max-attempts` (default `3`), so a task that keeps
+  timing out stops being re-queued instead of consuming budget forever.
+- Successful rows and rows that stopped for any other reason are still skipped.
+- The newest attempt replaces the task's previous row in `OUTPUT_JSONL`, and the
+  compact report keeps one line per task.
+- Combine it with `--continue-from-checkpoint` to continue from the last
+  completed step; without the checkpoint flag the retry starts a fresh attempt.
+- The deployment launcher enables this by default (`RETRY_TIMEOUT=1`,
+  `MAX_ATTEMPTS=3`); set `RETRY_TIMEOUT=0` to restore the old
+  skip-every-existing-row behavior.
+
 Trace `run_meta` exposes `checkpoint_thread_id`, `last_checkpoint_id`,
 `resumed_from_checkpoint`, and `resumed_from_step`; the runner's execution dict
 also reports `checkpoint_db` and `resumed_from_step`.

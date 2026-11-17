@@ -76,6 +76,10 @@ REPORT_JSONL="${REPORT_JSONL:-${RUN_ROOT}/cybergym_${GROUP_NAME}.report.jsonl}"
 # last completed step. Both default off.
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-}"
 CONTINUE_FROM_CHECKPOINT="${CONTINUE_FROM_CHECKPOINT:-0}"
+# With --resume, re-queue tasks whose last attempt stopped at the wall-clock
+# budget (or was interrupted); MAX_ATTEMPTS bounds repeated timeouts.
+RETRY_TIMEOUT="${RETRY_TIMEOUT:-1}"
+MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
 # --run may target an external verification server via SERVER_URL. Only derive
 # it from SERVER_HOST/SERVER_PORT when the caller did not provide one.
 if [[ -z "${SERVER_URL:-}" && -n "${SERVER_PORT:-}" ]]; then
@@ -145,6 +149,8 @@ write_runtime_config() {
     printf 'REPORT_JSONL=%q\n' "$REPORT_JSONL"
     printf 'CHECKPOINT_DIR=%q\n' "$CHECKPOINT_DIR"
     printf 'CONTINUE_FROM_CHECKPOINT=%q\n' "$CONTINUE_FROM_CHECKPOINT"
+    printf 'RETRY_TIMEOUT=%q\n' "$RETRY_TIMEOUT"
+    printf 'MAX_ATTEMPTS=%q\n' "$MAX_ATTEMPTS"
   } > "$RUNTIME_CONFIG"
   chmod 600 "$RUNTIME_CONFIG"
 }
@@ -223,6 +229,11 @@ run_batch() {
     checkpoint_args+=(--continue-from-checkpoint)
   fi
 
+  local retry_args=()
+  if [[ "$RETRY_TIMEOUT" == "1" ]]; then
+    retry_args+=(--retry-timeout --max-attempts "$MAX_ATTEMPTS")
+  fi
+
   "$PYTHON_BIN" -u "$QITOS_ROOT/scripts/run_cybergym_batch.py" \
     --data-dir "$DATA_DIR" \
     --out-root "$RUN_ROOT" \
@@ -240,6 +251,7 @@ run_batch() {
     --output-jsonl "$OUTPUT_JSONL" \
     --report-jsonl "$REPORT_JSONL" \
     ${checkpoint_args[@]+"${checkpoint_args[@]}"} \
+    ${retry_args[@]+"${retry_args[@]}"} \
     --resume &
   batch_pid=$!
 

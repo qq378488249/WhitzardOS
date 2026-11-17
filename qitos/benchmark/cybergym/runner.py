@@ -179,7 +179,7 @@ from .evaluator import CyberGymEvaluator
 from .runtime import CyberGymRuntimeHook, prepare_task_dir
 from .scorer import CyberGymScorer
 
-_RESUMABLE_STOP_REASONS = frozenset({"budget_time", "interrupt"})
+RESUMABLE_STOP_REASONS = frozenset({"budget_time", "interrupt"})
 
 
 def _checkpoint_thread_id(task: Any) -> str:
@@ -199,7 +199,7 @@ def _checkpoint_thread_id(task: Any) -> str:
 def _is_resumable_checkpoint(checkpoint: Any) -> bool:
     """A checkpoint is resumable unless the previous attempt reached a real stop."""
     stop_reason = (checkpoint.state_data or {}).get("stop_reason")
-    return not stop_reason or str(stop_reason) in _RESUMABLE_STOP_REASONS
+    return not stop_reason or str(stop_reason) in RESUMABLE_STOP_REASONS
 
 
 def _clear_checkpoint_thread(store: Any, thread_id: str) -> None:

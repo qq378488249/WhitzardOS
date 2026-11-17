@@ -6,7 +6,10 @@ import os
 from pathlib import Path
 
 from qitos.benchmark.cybergym.adapter import load_cybergym_tasks
-from qitos.benchmark.cybergym.runner import run_cybergym_task
+from qitos.benchmark.cybergym.runner import (
+    RESUMABLE_STOP_REASONS,
+    run_cybergym_task,
+)
 from qitos.recipes.benchmarks._shared import (
     build_example_specs,
     execute_example_jobs,
@@ -51,10 +54,26 @@ def main() -> int:
     parser.add_argument("--checkpoint-dir", default="")
     parser.add_argument("--continue-from-checkpoint", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--retry-timeout",
+        action="store_true",
+        help=(
+            "With --resume, re-queue tasks whose previous attempt stopped at "
+            "budget_time or interrupt, up to --max-attempts attempts."
+        ),
+    )
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=3,
+        help="Maximum completed attempts per task when --retry-timeout is set.",
+    )
     args = parser.parse_args()
 
     if not str(args.api_key).strip():
         raise SystemExit("api key is required")
+    if int(args.max_attempts) < 1:
+        raise SystemExit("--max-attempts must be >= 1")
 
     out_root = Path(args.out_root).expanduser().resolve()
     traces = out_root / "traces"
@@ -127,6 +146,10 @@ def main() -> int:
         concurrency=max(1, int(args.concurrency)),
         resume=bool(args.resume),
         report_path=report_path,
+        retry_stop_reasons=(
+            tuple(sorted(RESUMABLE_STOP_REASONS)) if args.retry_timeout else None
+        ),
+        max_attempts=int(args.max_attempts),
     )
     print_benchmark_summary(rows)
     print(f"OUTPUT_JSONL={output_path}")

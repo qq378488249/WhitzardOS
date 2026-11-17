@@ -16,6 +16,7 @@ from qitos.benchmark.common import (
     build_experiment_spec,
     evaluate_benchmark_results,
     read_benchmark_results,
+    write_benchmark_results,
 )
 from qitos.core.spec import BenchmarkRunResult, ExperimentSpec, RunSpec
 
@@ -78,7 +79,12 @@ def execute_example_jobs(
     concurrency: int = 1,
     resume: bool = False,
     report_path: str | Path | None = None,
+    retry_stop_reasons: Optional[Iterable[str]] = None,
+    max_attempts: int = 3,
 ) -> List[BenchmarkRunResult]:
+    retry_reasons = {str(reason) for reason in (retry_stop_reasons or ())}
+    if retry_reasons and int(max_attempts) < 1:
+        raise ValueError("max_attempts must be >= 1 when retry_stop_reasons is set")
     target = Path(output_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     report_target = (
@@ -89,6 +95,10 @@ def execute_example_jobs(
         existing_rows = (
             read_benchmark_results(target) if target.exists() else []
         )
+        if retry_reasons:
+            # A retried task can leave an old and a new row on disk after a
+            # crash; keep the newest one before deciding what is still pending.
+            existing_rows = _dedupe_rows(existing_rows)
     else:
         # A fresh run owns the file, matching the previous overwrite behavior.
         existing_rows = []
@@ -103,21 +113,35 @@ def execute_example_jobs(
             # Rebuild the compact report from rows already on disk.
             for row in existing_rows:
                 append_task_report(report_target, row)
-    done = {
-        str(row.metadata.get("job_key", "")).strip() or str(row.task_id).strip()
-        for row in existing_rows
-    }
-    pending = [
-        item
-        for item in job_items
-        if str(item.get("job_key", "") or item.get("task_id", "")).strip() not in done
-    ]
+    done: set[str] = set()
+    attempts_by_key: Dict[str, int] = {}
+    for row in existing_rows:
+        key = _row_job_key(row)
+        attempts = _row_attempts(row)
+        attempts_by_key[key] = max(attempts_by_key.get(key, 0), attempts)
+        retryable = bool(
+            retry_reasons
+            and not row.success
+            and str(row.stop_reason or "") in retry_reasons
+            and attempts < int(max_attempts)
+        )
+        if not retryable:
+            done.add(key)
+    pending: List[tuple[Dict[str, Any], Optional[int]]] = []
+    for item in job_items:
+        key = _item_job_key(item)
+        if key in done:
+            continue
+        attempt = attempts_by_key.get(key, 0) + 1 if retry_reasons else None
+        pending.append((item, attempt))
 
     all_rows: List[BenchmarkRunResult] = list(existing_rows)
     write_lock = threading.Lock()
 
-    def _record(item: Dict[str, Any]) -> BenchmarkRunResult:
-        row = _run_example_job(runner, item, run_spec, experiment_spec)
+    def _record(item: Dict[str, Any], attempt: Optional[int]) -> BenchmarkRunResult:
+        row = _run_example_job(
+            runner, item, run_spec, experiment_spec, attempt=attempt
+        )
         # Persist each finished job immediately so a crash keeps every row
         # that already completed; --resume then skips exactly those jobs.
         with write_lock:
@@ -128,14 +152,25 @@ def execute_example_jobs(
         return row
 
     if int(concurrency) <= 1:
-        for item in pending:
-            _record(item)
+        for item, attempt in pending:
+            _record(item, attempt)
     else:
         with ThreadPoolExecutor(max_workers=max(1, int(concurrency))) as pool:
-            futures = [pool.submit(_record, item) for item in pending]
+            futures = [
+                pool.submit(_record, item, attempt) for item, attempt in pending
+            ]
             for future in as_completed(futures):
                 # Raises the first failure; already-finished jobs are on disk.
                 future.result()
+
+    if retry_reasons:
+        # Retries append rows, so fold each task to its newest result once the
+        # run ends. Input in the middle of the run stays append-only for crash
+        # safety; the next run converges on the same newest row if it dies.
+        all_rows = _dedupe_rows(all_rows)
+        _rewrite_results(target, all_rows)
+        if report_target is not None:
+            _rewrite_report(report_target, all_rows)
 
     return all_rows
 
@@ -149,11 +184,61 @@ def print_single_result(row: BenchmarkRunResult) -> None:
     print(json.dumps(row.to_dict(), ensure_ascii=False, indent=2))
 
 
+def _item_job_key(item: Dict[str, Any]) -> str:
+    return str(item.get("job_key", "") or item.get("task_id", "")).strip()
+
+
+def _row_job_key(row: BenchmarkRunResult) -> str:
+    return (
+        str((row.metadata or {}).get("job_key", "")).strip()
+        or str(row.task_id).strip()
+    )
+
+
+def _row_attempts(row: BenchmarkRunResult) -> int:
+    raw = (row.metadata or {}).get("attempts", 1)
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _dedupe_rows(rows: Iterable[BenchmarkRunResult]) -> List[BenchmarkRunResult]:
+    """Keep the newest row per task; retries append newer rows."""
+    seen: set[str] = set()
+    deduped: List[BenchmarkRunResult] = []
+    for row in reversed(list(rows)):
+        key = _row_job_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    deduped.reverse()
+    return deduped
+
+
+def _rewrite_results(path: Path, rows: Iterable[BenchmarkRunResult]) -> None:
+    temp = path.with_name(path.name + ".tmp")
+    write_benchmark_results(temp, rows)
+    os.replace(temp, path)
+
+
+def _rewrite_report(path: Path, rows: Iterable[BenchmarkRunResult]) -> None:
+    temp = path.with_name(path.name + ".tmp")
+    with temp.open("w", encoding="utf-8"):
+        pass
+    for row in rows:
+        append_task_report(temp, row)
+    os.replace(temp, path)
+
+
 def _run_example_job(
     runner: RecipeRunner,
     item: Dict[str, Any],
     run_spec: RunSpec,
     experiment_spec: ExperimentSpec,
+    *,
+    attempt: Optional[int] = None,
 ) -> BenchmarkRunResult:
     # Set sticky-routing key so the upstream load balancer routes all
     # LLM requests for this task to the same backend node.  This improves
@@ -178,6 +263,8 @@ def _run_example_job(
     metadata = dict(row.metadata or {})
     if item.get("job_key") is not None:
         metadata.setdefault("job_key", item.get("job_key"))
+    if attempt is not None:
+        metadata["attempts"] = max(1, int(attempt))
     row.metadata = metadata
     if not row.run_spec_ref:
         row.run_spec_ref = run_spec.fingerprint()

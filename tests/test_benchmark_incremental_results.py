@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from qitos.benchmark.common import read_benchmark_results
+from qitos.benchmark.common import (
+    append_benchmark_result,
+    read_benchmark_results,
+    write_benchmark_results,
+)
 from qitos.core.spec import BenchmarkRunResult, ExperimentSpec, RunSpec
 from qitos.recipes.benchmarks._shared import execute_example_jobs
 
@@ -105,6 +109,225 @@ def test_resume_skips_rows_already_on_disk(tmp_path: Path) -> None:
         "ok-2",
         "ok-3",
     ]
+
+
+def test_resume_retries_timed_out_row_when_enabled(tmp_path: Path) -> None:
+    run_spec, experiment_spec = _specs()
+    output = tmp_path / "results.jsonl"
+    write_benchmark_results(
+        output,
+        [_row("t1", success=False, stop_reason="budget_time", prediction=None)],
+    )
+    calls: list[str] = []
+
+    def runner(task, job_key=None, run_spec=None, experiment_spec=None):
+        _ = job_key, run_spec, experiment_spec
+        calls.append(task)
+        return _row(task)
+
+    rows = execute_example_jobs(
+        jobs=_jobs("t1"),
+        runner=runner,
+        output_path=output,
+        run_spec=run_spec,
+        experiment_spec=experiment_spec,
+        concurrency=1,
+        resume=True,
+        retry_stop_reasons={"budget_time", "interrupt"},
+        max_attempts=3,
+    )
+
+    assert calls == ["t1"]
+    assert len(rows) == 1
+    assert rows[0].success is True
+    assert rows[0].metadata["attempts"] == 2
+    on_disk = read_benchmark_results(output)
+    assert len(on_disk) == 1
+    assert on_disk[0].metadata["attempts"] == 2
+
+
+def test_resume_retries_interrupted_row_when_enabled(tmp_path: Path) -> None:
+    run_spec, experiment_spec = _specs()
+    output = tmp_path / "results.jsonl"
+    write_benchmark_results(
+        output,
+        [_row("t1", success=False, stop_reason="interrupt", prediction=None)],
+    )
+    calls: list[str] = []
+
+    def runner(task, job_key=None, run_spec=None, experiment_spec=None):
+        _ = job_key, run_spec, experiment_spec
+        calls.append(task)
+        return _row(task)
+
+    execute_example_jobs(
+        jobs=_jobs("t1"),
+        runner=runner,
+        output_path=output,
+        run_spec=run_spec,
+        experiment_spec=experiment_spec,
+        concurrency=1,
+        resume=True,
+        retry_stop_reasons={"budget_time", "interrupt"},
+        max_attempts=3,
+    )
+
+    assert calls == ["t1"]
+
+
+def test_retry_skips_successful_and_other_failures(tmp_path: Path) -> None:
+    run_spec, experiment_spec = _specs()
+    output = tmp_path / "results.jsonl"
+    write_benchmark_results(
+        output,
+        [
+            _row("done-1"),
+            _row("failed-final", success=False, stop_reason="final", prediction=None),
+            _row("exhausted-1", success=False, stop_reason="unrecoverable_error"),
+        ],
+    )
+    calls: list[str] = []
+
+    def runner(task, job_key=None, run_spec=None, experiment_spec=None):
+        _ = job_key, run_spec, experiment_spec
+        calls.append(task)
+        return _row(task)
+
+    execute_example_jobs(
+        jobs=_jobs("done-1", "failed-final", "exhausted-1"),
+        runner=runner,
+        output_path=output,
+        run_spec=run_spec,
+        experiment_spec=experiment_spec,
+        concurrency=1,
+        resume=True,
+        retry_stop_reasons={"budget_time", "interrupt"},
+        max_attempts=3,
+    )
+
+    assert calls == []
+
+
+def test_retry_stops_at_max_attempts(tmp_path: Path) -> None:
+    run_spec, experiment_spec = _specs()
+    output = tmp_path / "results.jsonl"
+    write_benchmark_results(
+        output,
+        [
+            _row(
+                "t1",
+                success=False,
+                stop_reason="budget_time",
+                prediction=None,
+                metadata={"attempts": 3},
+            )
+        ],
+    )
+    calls: list[str] = []
+
+    def runner(task, job_key=None, run_spec=None, experiment_spec=None):
+        _ = job_key, run_spec, experiment_spec
+        calls.append(task)
+        return _row(task)
+
+    rows = execute_example_jobs(
+        jobs=_jobs("t1"),
+        runner=runner,
+        output_path=output,
+        run_spec=run_spec,
+        experiment_spec=experiment_spec,
+        concurrency=1,
+        resume=True,
+        retry_stop_reasons={"budget_time"},
+        max_attempts=3,
+    )
+
+    assert calls == []
+    assert len(rows) == 1
+    assert rows[0].metadata["attempts"] == 3
+
+
+def test_retry_folds_rows_left_by_a_crashed_attempt(tmp_path: Path) -> None:
+    run_spec, experiment_spec = _specs()
+    output = tmp_path / "results.jsonl"
+    append_benchmark_result(
+        output,
+        _row(
+            "t1",
+            success=False,
+            stop_reason="budget_time",
+            prediction=None,
+            metadata={"attempts": 1},
+        ),
+    )
+    append_benchmark_result(
+        output,
+        _row(
+            "t1",
+            success=False,
+            stop_reason="budget_time",
+            prediction=None,
+            metadata={"attempts": 2},
+        ),
+    )
+
+    def runner(task, job_key=None, run_spec=None, experiment_spec=None):
+        _ = job_key, run_spec, experiment_spec
+        return _row(task)
+
+    rows = execute_example_jobs(
+        jobs=_jobs("t1"),
+        runner=runner,
+        output_path=output,
+        run_spec=run_spec,
+        experiment_spec=experiment_spec,
+        concurrency=1,
+        resume=True,
+        retry_stop_reasons={"budget_time"},
+        max_attempts=3,
+    )
+
+    assert len(rows) == 1
+    assert rows[0].metadata["attempts"] == 3
+    on_disk = read_benchmark_results(output)
+    assert len(on_disk) == 1
+    assert on_disk[0].metadata["attempts"] == 3
+
+
+def test_retry_folds_the_report_to_one_line(tmp_path: Path) -> None:
+    run_spec, experiment_spec = _specs()
+    output = tmp_path / "results.jsonl"
+    report = tmp_path / "results.report.jsonl"
+
+    def timed_out_runner(task, job_key=None, run_spec=None, experiment_spec=None):
+        _ = job_key, run_spec, experiment_spec
+        return _row(task, success=False, stop_reason="budget_time", prediction=None)
+
+    execute_example_jobs(
+        jobs=_jobs("t1"),
+        runner=timed_out_runner,
+        output_path=output,
+        run_spec=run_spec,
+        experiment_spec=experiment_spec,
+        concurrency=1,
+        report_path=report,
+    )
+    execute_example_jobs(
+        jobs=_jobs("t1"),
+        runner=_runner,
+        output_path=output,
+        run_spec=run_spec,
+        experiment_spec=experiment_spec,
+        concurrency=1,
+        resume=True,
+        retry_stop_reasons={"budget_time"},
+        max_attempts=3,
+        report_path=report,
+    )
+
+    lines = _report_lines(report)
+    assert [line["task_id"] for line in lines] == ["t1"]
+    assert lines[0]["success"] is True
 
 
 def test_concurrent_jobs_are_appended_exactly_once(tmp_path: Path) -> None:

@@ -232,7 +232,8 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml up -d
 ```
 
 - 断点续跑默认关闭：中途被杀，该任务从第 0 步重跑。设置 `CHECKPOINT_DIR`（例如 `${RUN_ROOT}/checkpoints`）并令 `CONTINUE_FROM_CHECKPOINT=1` 后，撞墙钟或被硬杀的任务会从最后完成的步骤继续；墙钟预算按每次尝试重新计算，步数预算继续累计。
-- `--resume` 会跳过 `OUTPUT_JSONL` 中已有的任务，**失败任务也会跳过**。每跑完一个任务结果就立即落盘，所以批处理中途崩溃后重启，只会重跑崩溃时正在进行的那个任务。要重试某个任务，删掉结果文件里对应那一行和它的 `traces/` 目录，再启动。
+- `--resume` 默认跳过 `OUTPUT_JSONL` 中已有的任务，**失败任务也会跳过**。每跑完一个任务结果就立即落盘，所以批处理中途崩溃后重启，只会重跑崩溃时正在进行的那个任务。
+- 超时重跑默认开启：启动器设置 `RETRY_TIMEOUT=1`，上一轮停在 `budget_time` / `interrupt` 的任务会重新排队，每个任务最多尝试 `MAX_ATTEMPTS`（默认 3）次；重跑结果替换该任务的旧行，统计不会重复计数。设 `RETRY_TIMEOUT=0` 恢复“已有结果一律跳过”的行为。要立即重试其它失败原因的任务，仍可删掉结果文件里对应那一行和它的 `traces/` 目录再启动。
 - 同一时刻还会写一份简洁的每任务简报 `REPORT_JSONL`（默认与 `OUTPUT_JSONL` 同目录、文件名加 `.report`）。每完成一个任务追加一行，适合 `tail -f`：
   ```json
   {"task_id":"arvo:54948","success":true,"stop_reason":"success","final_result":"pocs/poc_quote_eof.bin","elapsed_seconds":254.04,"vul_exit_code":139,"fix_exit_code":0}
