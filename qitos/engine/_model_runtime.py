@@ -57,7 +57,7 @@ NATIVE_TEXT_PARSER_ERROR_LIMIT = 3
 # the run as a final answer, which is the reason native_text_final exists.
 _STRUCTURED_OUTPUT_ATTEMPT_RE = re.compile(
     r"^\s*[\{\[]"
-    r"|<\s*/?\s*(?:tool_calls?|function_calls?|invoke|parameter)\b"
+    r"|<\s*/?\s*(?:tool_[a-z0-9_]+|function_calls?|invoke|parameter)\b"
     r"|\"(?:action|actions|tool_calls|final_answer|mode)\"\s*:",
     re.IGNORECASE,
 )
@@ -65,6 +65,25 @@ _STRUCTURED_OUTPUT_ATTEMPT_RE = re.compile(
 
 def _looks_like_structured_output(text: str) -> bool:
     return bool(_STRUCTURED_OUTPUT_ATTEMPT_RE.search(str(text or "")))
+
+
+def _looks_degenerate_native_text(text: str) -> bool:
+    """Detect repetition loops that are not a real conclusion.
+
+    Degenerate decoding shows up as the same phrase repeated dozens of times
+    (``at opentype-saniser.h:85`` …). Such text is a failed generation, not a
+    natural-language answer, so it must go through parser repair instead of
+    ending the run. Short answers are never flagged: a genuine conclusion can
+    repeat a couple of words without being degenerate.
+    """
+    tokens = re.findall(r"\S+", str(text or ""))
+    if len(tokens) < 80:
+        return False
+    trigrams = [tuple(tokens[i : i + 3]) for i in range(len(tokens) - 2)]
+    if not trigrams:
+        return False
+    unique_ratio = len(set(trigrams)) / len(trigrams)
+    return unique_ratio < 0.15
 
 
 def _escape_runtime_context_content(content: str) -> str:
@@ -1077,6 +1096,10 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         )
 
         if is_native_text_response:
+            # Degenerate decoding (repetition loops) is a failed generation, not
+            # a conclusion; it must not be honoured even when a parser happens
+            # to label it final.
+            degenerate = _looks_degenerate_native_text(str(parser_input or ""))
             # Still try the parser chain first — if the model happened to
             # produce valid structured output (JSON with a final_answer, or
             # ReAct "Final Answer:" label), let the parser extract it.
@@ -1086,22 +1109,27 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
                 record=record,
             )
             # If the parser produced a *productive* decision (act or final),
-            # honour it. But if the parser could only produce wait() — which
-            # is the default fallback when natural language can't be parsed as
-            # JSON — override it with native_text_final.
-            if parse_outcome is not None and parse_outcome.mode != "wait":
+            # honour it — unless the text is a leaked markup payload or a
+            # degenerate repetition loop, which are failed generations even if
+            # a parser managed to extract something from them.
+            if (
+                parse_outcome is not None
+                and parse_outcome.mode != "wait"
+                and not leaked_tool_markup
+                and not degenerate
+            ):
                 self._native_text_parser_error_streak = 0
                 return parse_outcome
 
-            parser_failed = leaked_tool_markup or (
+            parser_failed = leaked_tool_markup or degenerate or (
                 self._parser_reported_error(parse_outcome)
                 and _looks_like_structured_output(str(parser_input or ""))
             )
             if parser_failed:
                 return self._handle_native_text_parser_failure(
-                    parse_outcome=parse_outcome,
                     cleaned_text=str(parser_input or "").strip(),
                     leaked_tool_markup=leaked_tool_markup,
+                    degenerate=degenerate,
                     step=step,
                     record=record,
                 )
@@ -1124,7 +1152,6 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
                 # Markup-only output: the cleaned text is empty, so the branch
                 # above did not handle it. Count it and let the run continue.
                 return self._handle_native_text_parser_failure(
-                    parse_outcome=parse_outcome,
                     cleaned_text=str(parser_input or "").strip(),
                     leaked_tool_markup=leaked_tool_markup,
                     step=step,
@@ -1148,28 +1175,29 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
     def _handle_native_text_parser_failure(
         self,
         *,
-        parse_outcome: Decision[ActionT] | None,
         cleaned_text: str,
         leaked_tool_markup: bool,
         step: int,
         record: StepRecord | None,
+        degenerate: bool = False,
     ) -> Decision[ActionT]:
         """Retry unparseable native text instead of ending the run on it.
 
         A text response that is really a mangled tool call (for example leaked
-        ``<｜DSML｜tool_calls>`` markup) must not be recorded as the final
-        answer. The parser's ``wait`` decision carries repair feedback, so the
-        next step can correct the output; only after
+        ``<｜DSML｜tool_calls>`` markup) or a repetition loop must not be
+        recorded as the final answer. The parser's ``wait`` decision carries
+        repair feedback, so the next step can correct the output; only after
         ``NATIVE_TEXT_PARSER_ERROR_LIMIT`` consecutive failures does the run
         end, and then the stop is marked as degraded.
         """
         self._native_text_parser_error_streak += 1
         streak = self._native_text_parser_error_streak
-        decision_source = (
-            "native_text_tool_markup"
-            if leaked_tool_markup
-            else "native_text_parser_error"
-        )
+        if leaked_tool_markup:
+            decision_source = "native_text_tool_markup"
+        elif degenerate:
+            decision_source = "native_text_degenerate"
+        else:
+            decision_source = "native_text_parser_error"
         if record is not None:
             record.decision_source = decision_source
         self.engine._emit(
@@ -1179,14 +1207,17 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
                 "stage": "native_text_parser_failure",
                 "decision_source": decision_source,
                 "leaked_tool_markup": leaked_tool_markup,
+                "degenerate": degenerate,
                 "parser_error_streak": streak,
                 "limit": NATIVE_TEXT_PARSER_ERROR_LIMIT,
                 "text_chars": len(cleaned_text),
             },
         )
         if streak < NATIVE_TEXT_PARSER_ERROR_LIMIT:
-            if parse_outcome is not None:
-                return parse_outcome
+            # A productive parser decision is replaced by a repair turn here:
+            # the response is already known to be a failed generation (leaked
+            # markup or a repetition loop), so acting on or finalising it would
+            # propagate garbage into the run.
             return Decision.wait(
                 rationale=(
                     "Model text without tool calls could not be parsed; "
@@ -1195,15 +1226,24 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
                 meta={
                     "parser_error": True,
                     "leaked_tool_markup": leaked_tool_markup,
+                    "degenerate": degenerate,
                     "parser_feedback": (
                         "Return a valid JSON decision or a real tool call; "
-                        "do not emit provider tool-call markup."
+                        "do not emit provider tool-call markup or repeated text."
                     ),
                 },
             )
+        if degenerate:
+            answer = (
+                "[degraded] model produced degenerate repeated output "
+                f"({len(cleaned_text)} chars)"
+            )
+        else:
+            answer = cleaned_text or (
+                "[degraded] model produced unparseable tool-call output"
+            )
         return Decision.final(
-            answer=cleaned_text
-            or "[degraded] model produced unparseable tool-call output",
+            answer=answer,
             rationale=(
                 "Repeated unparseable text responses from the model; ending "
                 "the run with a degraded final answer."
@@ -1211,6 +1251,7 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             meta={
                 "decision_source": "native_text_final_degraded",
                 "leaked_tool_markup": leaked_tool_markup,
+                "degenerate": degenerate,
                 "parser_error_streak": streak,
             },
         )

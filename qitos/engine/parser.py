@@ -83,9 +83,13 @@ def parser_raw_preview(raw_output: Any, limit: int = 50000) -> str:
 
 # Provider-private tool-call markup that leaks into `content` when an
 # OpenAI-compatible gateway does not map it to native `tool_calls`. DeepSeek
-# models emit `<｜DSML｜tool_calls>` (with U+FF5C fullwidth bars), for example.
+# models emit `<｜DSML｜tool_calls>` (with U+FF5C fullwidth bars), for example;
+# other gateways forward their own protocol tags verbatim (`<tool_result>`,
+# `<tool_info>`, often as unterminated nested runs such as
+# `</tool_format</tool_size_t</tool_result>`).
 _LEAKED_TOOL_MARKUP_RE = re.compile(
-    r"<[｜|]\s*DSML\s*[｜|][^>]*>",
+    r"<[｜|]\s*DSML\s*[｜|][^>]*>"
+    r"|</?\s*tool_[a-z0-9_]+(?:\s[^>]{0,120})?>?",
     re.IGNORECASE,
 )
 

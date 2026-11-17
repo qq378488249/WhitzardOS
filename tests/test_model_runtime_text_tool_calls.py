@@ -290,6 +290,112 @@ def test_leaked_dsml_tool_markup_is_not_a_final_answer():
     assert record.decision_source == "native_text_tool_markup"
 
 
+def test_leaked_provider_tool_markup_is_not_a_final_answer():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    decision = runtime.normalize_decision(
+        _text_response(
+            "<tool_result>[submit_poc(poc_path=pocs/poc_capture_group.bin]"
+            "</tool_result>\n\n<tool_results>{\"status\": \"success\", "
+            "\"poc_path\": \"pocs/poc_capture_group.bin\"}</tool_results>"
+        ),
+        step=0,
+        record=record,
+    )
+
+    assert decision.mode == "wait"
+    assert decision.meta["parser_error"] is True
+    assert decision.meta["leaked_tool_markup"] is True
+    assert record.decision_source == "native_text_tool_markup"
+
+
+def test_strip_leaked_tool_markup_handles_tool_protocol_tags():
+    from qitos.engine.parser import strip_leaked_tool_markup
+
+    cleaned, had_markup = strip_leaked_tool_markup(
+        "offset=200) ---</tool_format</tool_size_t</tool_result>\n"
+        "<tool_info>done</tool_info>"
+    )
+
+    assert had_markup is True
+    assert "tool_" not in cleaned
+    assert "offset=200)" in cleaned
+
+
+def _degenerate_text() -> str:
+    return "at opentype-saniser.h:85 " * 60
+
+
+def test_degenerate_repeated_text_is_not_a_final_answer():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    decision = runtime.normalize_decision(
+        _text_response(_degenerate_text()), step=0, record=record
+    )
+
+    assert decision.mode == "wait"
+    assert decision.meta["parser_error"] is True
+    assert decision.meta["degenerate"] is True
+    assert record.decision_source == "native_text_degenerate"
+
+
+def test_degenerate_text_ends_with_a_marker_not_the_loop():
+    runtime = _native_text_runtime()
+
+    decisions = [
+        runtime.normalize_decision(
+            _text_response(_degenerate_text()),
+            step=step,
+            record=StepRecord(step_id=step),
+        )
+        for step in range(3)
+    ]
+
+    assert [decision.mode for decision in decisions] == ["wait", "wait", "final"]
+    degraded = decisions[-1]
+    assert degraded.meta["decision_source"] == "native_text_final_degraded"
+    assert degraded.meta["degenerate"] is True
+    assert degraded.final_answer.startswith("[degraded]")
+    assert "opentype-saniser" not in degraded.final_answer
+
+
+def test_degenerate_text_with_a_final_label_is_still_retried():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    decision = runtime.normalize_decision(
+        _text_response("Final Answer: " + _degenerate_text()),
+        step=0,
+        record=record,
+    )
+
+    assert decision.mode == "wait"
+    assert record.decision_source == "native_text_degenerate"
+
+
+def test_long_varied_prose_is_still_a_final_answer():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+    prose = (
+        "The trigger is a one-byte overwrite in the parser. I reproduced it "
+        "with the staged binary under gdb: the write lands on the chunk header "
+        "and the crash is deterministic. The candidate PoC is saved as "
+        "pocs/poc_rule.bin, and every check I ran shows the fixed build stays "
+        "clean while the vulnerable build aborts. Nothing else is left to try, "
+        "so I am reporting this as the final answer for the task at hand."
+    )
+
+    decision = runtime.normalize_decision(
+        _text_response(prose), step=0, record=record
+    )
+
+    assert decision.mode == "final"
+    assert decision.final_answer == prose
+    assert record.decision_source == "native_text_final"
+
+
 def test_malformed_structured_output_is_retried_not_finalized():
     runtime = _native_text_runtime()
     record = StepRecord(step_id=0)
