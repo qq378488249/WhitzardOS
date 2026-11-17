@@ -6,6 +6,7 @@ from .func_parser import (
     parse_kwargs_loose,
     split_args_robust,
 )
+from .dsml_tool_call_parser import DsmlToolCallParser
 from .json_parser import JsonDecisionParser
 from .kimi_tool_call_parser import KimiToolCallParser
 from .minimax_tool_call_parser import MiniMaxToolCallParser
@@ -20,6 +21,7 @@ __all__ = [
     "split_args_robust",
     "parse_kwargs_loose",
     "parse_first_action_invocation",
+    "DsmlToolCallParser",
     "JsonDecisionParser",
     "KimiToolCallParser",
     "MiniMaxToolCallParser",

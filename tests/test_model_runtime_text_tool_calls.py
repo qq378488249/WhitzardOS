@@ -426,3 +426,81 @@ def test_repeated_unparseable_text_ends_with_degraded_final():
     assert degraded.meta["decision_source"] == "native_text_final_degraded"
     assert degraded.meta["parser_error_streak"] == 3
     assert "<｜DSML｜" not in degraded.final_answer
+
+
+_DSML_COMPLETE = (
+    "Let me add these.\n\n"
+    "<｜DSML｜tool_calls>\n"
+    '<｜DSML｜invoke name="add">\n'
+    '<｜DSML｜parameter name="a">20</｜DSML｜parameter>\n'
+    '<｜DSML｜parameter name="b">22</｜DSML｜parameter>\n'
+    "</｜DSML｜invoke>\n"
+    "</｜DSML｜tool_calls>"
+)
+
+
+def _raw_text_response(text: str):
+    return SimpleNamespace(
+        message=SimpleNamespace(content=text, tool_calls=None),
+        finish_reason="stop",
+    )
+
+
+def test_complete_dsml_tool_call_is_used_after_normal_parsing_fails():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    response = runtime._normalize_model_response(_raw_text_response(_DSML_COMPLETE))
+    decision = runtime.normalize_decision(response, step=0, record=record)
+
+    assert decision.mode == "act"
+    assert record.decision_source == "deepseek_dsml"
+    assert [(action.name, action.args) for action in decision.actions] == [
+        ("add", {"a": 20, "b": 22})
+    ]
+    # The complete block is removed before the text reaches history.
+    assert "<｜DSML｜" not in response.text
+
+
+def test_incomplete_dsml_tool_call_is_retried_not_final():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+    truncated = (
+        '<｜DSML｜tool_calls>\n<｜DSML｜invoke name="add">\n'
+        '<｜DSML｜parameter name="a">20</｜DSML｜parameter>'
+    )
+
+    response = runtime._normalize_model_response(_raw_text_response(truncated))
+    decision = runtime.normalize_decision(response, step=0, record=record)
+
+    assert decision.mode == "wait"
+    assert record.decision_source == "native_text_tool_markup"
+
+
+def test_dsml_tool_call_with_unknown_tool_name_is_not_salvaged():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+    unknown_tool = _DSML_COMPLETE.replace('name="add"', 'name="xmlAddID"')
+
+    response = runtime._normalize_model_response(
+        _raw_text_response(unknown_tool)
+    )
+    decision = runtime.normalize_decision(response, step=0, record=record)
+
+    assert "dsml_tool_calls" not in response.metadata
+    assert decision.mode == "wait"
+    assert record.decision_source == "native_text_tool_markup"
+
+
+def test_orphan_dsml_closing_tag_is_not_a_final_answer():
+    runtime = _native_text_runtime()
+    record = StepRecord(step_id=0)
+
+    decision = runtime.normalize_decision(
+        _text_response("Now I understand.</｜DSML｜tool_calls>"),
+        step=0,
+        record=record,
+    )
+
+    assert decision.mode == "wait"
+    assert record.decision_source == "native_text_tool_markup"

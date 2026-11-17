@@ -37,6 +37,7 @@ from qitos.harness import build_harness_policy, build_model_for_preset
 - `JsonDecisionParser`：解析 JSON 决策对象
 - `XmlDecisionParser`：解析 XML 协议
 - `MiniMaxToolCallParser`：处理模型原生工具调用结构
+- `DsmlToolCallParser`：解析泄漏到文本中的完整 DeepSeek `<｜DSML｜tool_calls>` 块
 - `TerminusJsonParser` / `TerminusXmlParser`：处理带显式终止信号的格式
 
 ### 工具预设

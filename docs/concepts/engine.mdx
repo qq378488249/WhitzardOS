@@ -130,7 +130,10 @@ These responses are retried through the parser-repair path as `wait` decisions
 and keep the run alive. Only after three consecutive failures does the run end,
 and the trace marks that stop with `decision_source=native_text_final_degraded`
 plus `parser_error_streak`, so a mangled tool call no longer masquerades as a
-normal completion. Agents built on the default prompt builder receive the
+normal completion. A complete DeepSeek DSML block is the exception: once the
+normal parser chain cannot build a decision, the engine restores it into the
+tool call it encodes. Only absent, truncated, or unknown-tool blocks stay on
+the repair path. Agents built on the default prompt builder receive the
 parser's repair instruction through `parser_feedback`; the CyberGym agent,
 which builds its prompt manually, appends a one-shot repair reminder to the
 next observation instead.

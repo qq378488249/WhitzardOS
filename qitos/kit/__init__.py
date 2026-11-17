@@ -21,6 +21,7 @@ from .history import (
 )
 from .memory import MarkdownFileMemory, MemdirMemory, WindowMemory
 from .parser import (
+    DsmlToolCallParser,
     JsonDecisionParser,
     MiniMaxToolCallParser,
     ReActTextParser,
@@ -123,6 +124,7 @@ __all__ = [
     "ReActTextParser",
     "JsonDecisionParser",
     "MiniMaxToolCallParser",
+    "DsmlToolCallParser",
     "XmlDecisionParser",
     "TerminusJsonParser",
     "TerminusXmlParser",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
@@ -88,7 +90,7 @@ def parser_raw_preview(raw_output: Any, limit: int = 50000) -> str:
 # `<tool_info>`, often as unterminated nested runs such as
 # `</tool_format</tool_size_t</tool_result>`).
 _LEAKED_TOOL_MARKUP_RE = re.compile(
-    r"<[｜|]\s*DSML\s*[｜|][^>]*>"
+    r"</?[｜|]\s*DSML\s*[｜|][^>]*>"
     r"|</?\s*tool_[a-z0-9_]+(?:\s[^>]{0,120})?>?",
     re.IGNORECASE,
 )
@@ -109,6 +111,121 @@ def strip_leaked_tool_markup(text: str) -> tuple[str, bool]:
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned, True
+
+
+# DeepSeek V4 serialises tool calls with private ``<｜DSML｜...>`` tokens when
+# an OpenAI-compatible gateway forwards them as plain content instead of
+# mapping them to ``tool_calls``. A *complete* block is safe to restore: the
+# name and every parameter are explicitly delimited. A truncated block is not,
+# so salvage only accepts fully closed outer blocks, invokes, and parameters.
+_DSML_TOKEN = r"[｜|]\s*DSML\s*[｜|]"
+_DSML_TOOL_CALLS_OPEN_RE = re.compile(
+    rf"<{_DSML_TOKEN}\s*tool_calls\s*>", re.IGNORECASE
+)
+_DSML_TOOL_CALLS_BLOCK_RE = re.compile(
+    rf"<{_DSML_TOKEN}\s*tool_calls\s*>(.*?)</{_DSML_TOKEN}\s*tool_calls\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_DSML_INVOKE_OPEN_RE = re.compile(
+    rf"<{_DSML_TOKEN}\s*invoke\b[^>]*>", re.IGNORECASE
+)
+_DSML_INVOKE_RE = re.compile(
+    rf"<{_DSML_TOKEN}\s*invoke\b([^>]*)>(.*?)</{_DSML_TOKEN}\s*invoke\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_DSML_PARAMETER_OPEN_RE = re.compile(
+    rf"<{_DSML_TOKEN}\s*parameter\b[^>]*>", re.IGNORECASE
+)
+_DSML_PARAMETER_RE = re.compile(
+    rf"<{_DSML_TOKEN}\s*parameter\b([^>]*)>"
+    rf"(.*?)</{_DSML_TOKEN}\s*parameter\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_DSML_ATTR_NAME_RE = re.compile(r"""\bname\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+_DSML_ATTR_STRING_RE = re.compile(
+    r"""\bstring\s*=\s*["']?(?:true|1)["']?""", re.IGNORECASE
+)
+
+
+def has_dsml_tool_call_markup(text: str) -> bool:
+    """True when the text carries DeepSeek DSML tool-call markup."""
+    source = str(text or "")
+    return bool(
+        _DSML_TOOL_CALLS_OPEN_RE.search(source)
+        or _DSML_INVOKE_OPEN_RE.search(source)
+    )
+
+
+def salvage_dsml_tool_calls(text: str) -> Optional[List[Dict[str, Any]]]:
+    """Restore complete DeepSeek DSML tool calls into OpenAI-style tool calls.
+
+    Returns ``None`` (never a partial result) when the payload is absent,
+    truncated, or malformed. Incomplete markup stays in the response text so
+    the leaked-markup path treats it as a failed generation.
+    """
+    source = str(text or "")
+    if not _DSML_TOOL_CALLS_OPEN_RE.search(source):
+        return None
+    blocks = _DSML_TOOL_CALLS_BLOCK_RE.findall(source)
+    if not blocks or len(blocks) != len(_DSML_TOOL_CALLS_OPEN_RE.findall(source)):
+        return None
+
+    calls: List[Dict[str, Any]] = []
+    for block in blocks:
+        invoke_matches = _DSML_INVOKE_RE.findall(block)
+        if not invoke_matches:
+            return None
+        if len(invoke_matches) != len(_DSML_INVOKE_OPEN_RE.findall(block)):
+            return None
+        for invoke_attrs, invoke_body in invoke_matches:
+            name = _dsml_attr(invoke_attrs, _DSML_ATTR_NAME_RE)
+            if not name:
+                return None
+            parameter_matches = _DSML_PARAMETER_RE.findall(invoke_body)
+            if len(parameter_matches) != len(
+                _DSML_PARAMETER_OPEN_RE.findall(invoke_body)
+            ):
+                return None
+            args: Dict[str, Any] = {}
+            for parameter_attrs, parameter_value in parameter_matches:
+                key = _dsml_attr(parameter_attrs, _DSML_ATTR_NAME_RE)
+                if not key:
+                    return None
+                args[key] = _coerce_dsml_value(
+                    parameter_value,
+                    string_typed=bool(_DSML_ATTR_STRING_RE.search(parameter_attrs)),
+                )
+            calls.append(
+                {
+                    "id": f"call_dsml_{len(calls) + 1}",
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(args, ensure_ascii=False),
+                    },
+                }
+            )
+    return calls or None
+
+
+def remove_dsml_tool_call_blocks(text: str) -> str:
+    """Remove complete DSML tool-call blocks from text, keeping the prose."""
+    return _DSML_TOOL_CALLS_BLOCK_RE.sub("", str(text or "")).strip()
+
+
+def _dsml_attr(attrs: str, pattern: "re.Pattern[str]") -> str:
+    match = pattern.search(str(attrs or ""))
+    return match.group(1).strip() if match else ""
+
+
+def _coerce_dsml_value(value: str, *, string_typed: bool) -> Any:
+    text = html.unescape(str(value or "")).strip()
+    if string_typed:
+        return text
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return text
 
 
 def build_parser_diagnostics(

@@ -35,9 +35,12 @@ from ._protocol import _EngineProtocol
 from .streaming import StreamHandler, to_stream_handler
 from .parser import (
     build_parser_diagnostics,
+    has_dsml_tool_call_markup,
     normalize_parser_diagnostics,
     parser_contract,
     parser_name,
+    remove_dsml_tool_call_blocks,
+    salvage_dsml_tool_calls,
     strip_leaked_tool_markup,
 )
 from .states import RuntimePhase, StepRecord
@@ -1076,6 +1079,26 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         leaked_tool_markup = False
         if isinstance(parser_input, str):
             parser_input, leaked_tool_markup = strip_leaked_tool_markup(parser_input)
+        # A complete DSML block was already removed from the text by
+        # _normalize_model_response, so the strip above no longer sees it. Keep
+        # treating the response as a tool-call payload: a complete block is not
+        # a natural-language conclusion.
+        if (
+            response is not None
+            and isinstance(response.metadata, dict)
+            and response.metadata.get("dsml_tool_call_markup")
+        ):
+            leaked_tool_markup = True
+
+        if not str(parser_input or "").strip():
+            # Markup-only output: there is no prose left to parse, so a
+            # complete DSML block is the only usable decision.
+            dsml_decision = self._decision_from_dsml_tool_calls(
+                response=response, step=step, record=record
+            )
+            if dsml_decision is not None:
+                self._native_text_parser_error_streak = 0
+                return dsml_decision
 
         # When native tool calling is preferred and the model returned plain
         # text without tool_calls, treat it as a final answer — the model is
@@ -1121,6 +1144,15 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
                 self._native_text_parser_error_streak = 0
                 return parse_outcome
 
+            # Normal parsing did not produce a usable decision. A complete
+            # DeepSeek DSML block is the next fallback before repair.
+            dsml_decision = self._decision_from_dsml_tool_calls(
+                response=response, step=step, record=record
+            )
+            if dsml_decision is not None:
+                self._native_text_parser_error_streak = 0
+                return dsml_decision
+
             parser_failed = leaked_tool_markup or degenerate or (
                 self._parser_reported_error(parse_outcome)
                 and _looks_like_structured_output(str(parser_input or ""))
@@ -1149,6 +1181,14 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
         )
         if parse_outcome is not None:
             if leaked_tool_markup and parse_outcome.mode == "wait":
+                # Normal parsing could not use the output. A complete DSML
+                # block is the last structured fallback before repair.
+                dsml_decision = self._decision_from_dsml_tool_calls(
+                    response=response, step=step, record=record
+                )
+                if dsml_decision is not None:
+                    self._native_text_parser_error_streak = 0
+                    return dsml_decision
                 # Markup-only output: the cleaned text is empty, so the branch
                 # above did not handle it. Count it and let the run continue.
                 return self._handle_native_text_parser_failure(
@@ -1631,6 +1671,19 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
                 metadata["tool_call_markup_format"] = "glm_text_tool_call"
                 if self._contains_only_text_tool_call_markup(text):
                     text = ""
+        if not tool_calls and has_dsml_tool_call_markup(text):
+            # DeepSeek V4 DSML: keep the parsed calls as a deferred fallback.
+            # Normal parsing runs first; only when it cannot build a decision
+            # does normalize_decision act on these calls. A complete block is
+            # removed from the text so it never reaches history as prose; an
+            # incomplete block stays and is retried through parser repair.
+            metadata["dsml_tool_call_markup"] = True
+            dsml_tool_calls = salvage_dsml_tool_calls(text)
+            if dsml_tool_calls and self._tool_names_are_known(dsml_tool_calls):
+                metadata["dsml_tool_calls"] = dsml_tool_calls
+                metadata["tool_call_markup_salvaged"] = True
+                metadata["tool_call_markup_format"] = "deepseek_dsml_pending"
+                text = remove_dsml_tool_call_blocks(text)
         return ModelResponse(
             text=text,
             raw=response.raw,
@@ -1698,6 +1751,32 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             flags=re.DOTALL,
         ).strip()
         return not remainder
+
+    def _tool_names_are_known(self, tool_calls: List[Dict[str, Any]]) -> bool:
+        """Reject salvaged calls that name a tool this engine cannot run.
+
+        A malformed payload can carry an identifier the model never finished
+        (for example a function name from prose). Acting on an unknown name
+        would execute garbage, so leave the text untouched and let the
+        leaked-markup path retry it.
+        """
+        registry = getattr(self.engine, "tool_registry", None)
+        resolve_name = (
+            getattr(registry, "resolve_name", None) if registry is not None else None
+        )
+        if not callable(resolve_name):
+            return True
+        for item in tool_calls:
+            function = item.get("function") if isinstance(item, dict) else None
+            name = str((function or {}).get("name") or "").strip()
+            if not name:
+                return False
+            try:
+                if resolve_name(name) is None:
+                    return False
+            except Exception:
+                return True
+        return True
 
     def _extract_response_text(self, raw_output: Any) -> str:
         """Extract text content from a model response.
@@ -1882,6 +1961,54 @@ class _ModelRuntime(Generic[StateT, ObservationT, ActionT]):
             if value is not None:
                 metadata[key] = value
         return metadata
+
+    def _decision_from_dsml_tool_calls(
+        self,
+        *,
+        response: ModelResponse | None,
+        step: int,
+        record: StepRecord | None,
+    ) -> Decision[ActionT] | None:
+        """Build an action from a complete DSML block stashed during normalization.
+
+        This runs only after the normal parser chain failed, so a gateway that
+        leaks DSML into ``content`` still acts, while a legitimate JSON/ReAct
+        decision keeps precedence.
+        """
+        if response is None or not isinstance(response.metadata, dict):
+            return None
+        tool_calls = response.metadata.get("dsml_tool_calls")
+        if not isinstance(tool_calls, list) or not tool_calls:
+            return None
+        actions: List[Action] = []
+        for item in tool_calls:
+            action = self._action_from_tool_call(item)
+            if action is None:
+                return None
+            actions.append(action)
+        self.engine._emit(
+            step,
+            RuntimePhase.DECIDE,
+            payload={
+                "stage": "dsml_tool_calls_decision",
+                "tool_call_count": len(actions),
+                "tool_calls": [dict(item) for item in tool_calls],
+            },
+        )
+        if record is not None:
+            record.decision_source = "deepseek_dsml"
+            record.native_tool_call_used = True
+        return cast(
+            Decision[ActionT],
+            Decision.act(
+                actions=actions,
+                meta={
+                    "decision_source": "deepseek_dsml",
+                    "tool_call_markup_format": "deepseek_dsml",
+                    "tool_call_count": len(actions),
+                },
+            ),
+        )
 
     def _decision_from_native_tool_calls(
         self,
