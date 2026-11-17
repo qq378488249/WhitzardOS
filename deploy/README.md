@@ -234,6 +234,7 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml up -d
 - 断点续跑默认关闭：中途被杀，该任务从第 0 步重跑。设置 `CHECKPOINT_DIR`（例如 `${RUN_ROOT}/checkpoints`）并令 `CONTINUE_FROM_CHECKPOINT=1` 后，撞墙钟或被硬杀的任务会从最后完成的步骤继续；墙钟预算按每次尝试重新计算，步数预算继续累计。
 - `--resume` 默认跳过 `OUTPUT_JSONL` 中已有的任务，**失败任务也会跳过**。每跑完一个任务结果就立即落盘，所以批处理中途崩溃后重启，只会重跑崩溃时正在进行的那个任务。
 - 超时重跑默认开启：启动器设置 `RETRY_TIMEOUT=1`，上一轮停在 `budget_time` / `interrupt` 的任务会重新排队，每个任务最多尝试 `MAX_ATTEMPTS`（默认 3）次；重跑结果替换该任务的旧行，统计不会重复计数。设 `RETRY_TIMEOUT=0` 恢复“已有结果一律跳过”的行为。要立即重试其它失败原因的任务，仍可删掉结果文件里对应那一行和它的 `traces/` 目录再启动。
+- 运行时异常日志默认关闭：模型调用等异常发生时，引擎会把完整 traceback 追加到 `QITOS_ERROR_LOG` 指定的文件（也可用 `QITOS_TRACE_DIR` / `CYBERGYM_TASK_TRACE_DIR` 指定目录，写 `<目录>/step_error.log`；三者按优先级只生效一个）。路径要落在容器可见的挂载目录里，`RUN_ROOT` 最合适。注意批跑是单进程并发，日志按进程汇总而非按任务；按任务看错误请读 `traces/<run>/events.jsonl` 与 `manifest.json`。
 - 同一时刻还会写一份简洁的每任务简报 `REPORT_JSONL`（默认与 `OUTPUT_JSONL` 同目录、文件名加 `.report`）。每完成一个任务追加一行，适合 `tail -f`：
   ```json
   {"task_id":"arvo:54948","success":true,"stop_reason":"success","final_result":"pocs/poc_quote_eof.bin","elapsed_seconds":254.04,"vul_exit_code":139,"fix_exit_code":0}
