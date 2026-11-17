@@ -117,6 +117,7 @@ def test_resolved_model_limits_are_printed_once(
     monkeypatch.setenv("CYBERGYM_MAX_OUTPUT_TOKENS", "5432")
     monkeypatch.setenv("CYBERGYM_LLM_TIMEOUT_SECONDS", "42")
     monkeypatch.setenv("CYBERGYM_CONTEXT_WINDOW", "777777")
+    monkeypatch.setenv("CYBERGYM_REASONING_EFFORT", "high")
 
     _build_llm(model="ap-ds-v4-flash-printcheck")
     out = capsys.readouterr().out
@@ -126,7 +127,53 @@ def test_resolved_model_limits_are_printed_once(
     assert "max_output_tokens=5432 (CYBERGYM_MAX_OUTPUT_TOKENS)" in out
     assert "timeout=42s (CYBERGYM_LLM_TIMEOUT_SECONDS)" in out
     assert "context_window=777777 (CYBERGYM_CONTEXT_WINDOW)" in out
+    assert "reasoning_effort=high (CYBERGYM_REASONING_EFFORT)" in out
 
     # A batch builds one agent per task; the line prints once per configuration.
     _build_llm(model="ap-ds-v4-flash-printcheck")
     assert capsys.readouterr().out == ""
+
+
+def test_reasoning_effort_is_sent_through_extra_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CYBERGYM_REASONING_EFFORT", "HIGH")
+
+    llm = _build_llm(model="ap-ds-v4-flash-effort")
+
+    assert llm.default_request_kwargs == {
+        "extra_body": {"reasoning_effort": "high"}
+    }
+
+
+def test_explicit_reasoning_effort_wins_over_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CYBERGYM_REASONING_EFFORT", "high")
+
+    llm = _build_llm(
+        model="ap-ds-v4-flash-effort-explicit", reasoning_effort="low"
+    )
+
+    assert llm.default_request_kwargs == {
+        "extra_body": {"reasoning_effort": "low"}
+    }
+
+
+def test_invalid_reasoning_effort_fails_fast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CYBERGYM_REASONING_EFFORT", "maximum")
+
+    with pytest.raises(ValueError, match="CYBERGYM_REASONING_EFFORT"):
+        _build_llm(model="ap-ds-v4-flash-effort-bad")
+
+
+def test_reasoning_effort_is_not_sent_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CYBERGYM_REASONING_EFFORT", raising=False)
+
+    llm = _build_llm(model="ap-ds-v4-flash-effort-unset")
+
+    assert llm.default_request_kwargs == {}

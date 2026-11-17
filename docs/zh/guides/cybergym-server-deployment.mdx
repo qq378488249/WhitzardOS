@@ -197,6 +197,7 @@ sudo editor /etc/qitos/cybergym/level1-a.env
 | `CYBERGYM_MAX_OUTPUT_TOKENS` | 单次模型请求的最大输出 token |
 | `CYBERGYM_LLM_TIMEOUT_SECONDS` | 单次请求超时（秒） |
 | `CYBERGYM_CONTEXT_WINDOW` | 用于输入/输出预算的上下文窗口 |
+| `CYBERGYM_REASONING_EFFORT` | 发送给端点的推理强度（`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；留空用端点默认值） |
 
 代码显式传入的 `llm_config` 仍然优先于这些变量。非数字值会在启动时直接报错，而不是被静默忽略。批次启动后会在日志里打印一次实际生效值、来源和解析到的模型家族（`[CyberGym] model request limits: model=… family=… max_output_tokens=… timeout=… context_window=…`），便于确认本次跑批真正使用的配置。
 

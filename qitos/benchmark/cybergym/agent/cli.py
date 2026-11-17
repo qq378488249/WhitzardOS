@@ -86,6 +86,29 @@ def _positive_int_from_env(name: str) -> int | None:
     return value
 
 
+# OpenAI's ReasoningEffort enum (official API schema). Not every model
+# supports every value; the endpoint decides whether to honour it.
+_REASONING_EFFORT_VALUES = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+)
+
+
+def _normalize_reasoning_effort(value: Any, *, source: str) -> str | None:
+    """Validate a reasoning-effort value against the OpenAI enum."""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    if raw not in _REASONING_EFFORT_VALUES:
+        allowed = ", ".join(sorted(_REASONING_EFFORT_VALUES))
+        raise ValueError(f"{source} must be one of: {allowed}; got {raw!r}")
+    return raw
+
+
+def _reasoning_effort_from_env(name: str) -> str | None:
+    """Read an optional reasoning-effort override from the environment."""
+    return _normalize_reasoning_effort(os.environ.get(name), source=name)
+
+
 _RESOLVED_LIMITS_LOGGED: set[tuple] = set()
 
 
@@ -96,9 +119,11 @@ def _log_resolved_limits(
     max_tokens: int,
     timeout: int,
     context_window: int | None,
+    reasoning_effort: str | None,
     max_tokens_source: str,
     timeout_source: str,
     context_source: str,
+    reasoning_effort_source: str,
 ) -> None:
     """Print the effective request limits once per distinct configuration.
 
@@ -112,9 +137,11 @@ def _log_resolved_limits(
         max_tokens,
         timeout,
         context_window,
+        reasoning_effort,
         max_tokens_source,
         timeout_source,
         context_source,
+        reasoning_effort_source,
     )
     if signature in _RESOLVED_LIMITS_LOGGED:
         return
@@ -125,7 +152,9 @@ def _log_resolved_limits(
         f"max_output_tokens={max_tokens} ({max_tokens_source}) "
         f"timeout={timeout}s ({timeout_source}) "
         f"context_window={context_window if context_window is not None else 'auto'} "
-        f"({context_source})",
+        f"({context_source}) "
+        f"reasoning_effort={reasoning_effort or 'default'} "
+        f"({reasoning_effort_source})",
         flush=True,
     )
 
@@ -212,6 +241,24 @@ def _create_llm(model: str, llm_config: Optional[Dict[str, Any]] = None):
     if context_window is None:
         context_source = "inferred"
 
+    reasoning_effort = _normalize_reasoning_effort(
+        llm_config.get("reasoning_effort"),
+        source="llm_config['reasoning_effort']",
+    )
+    reasoning_effort_source = "llm_config"
+    if reasoning_effort is None:
+        reasoning_effort = _reasoning_effort_from_env("CYBERGYM_REASONING_EFFORT")
+        reasoning_effort_source = "CYBERGYM_REASONING_EFFORT"
+    if reasoning_effort is None:
+        reasoning_effort_source = "default"
+
+    # reasoning_effort goes through extra_body so the request body carries it
+    # on any OpenAI-compatible gateway, including endpoints whose SDK version
+    # does not know the parameter yet.
+    default_request_kwargs: Optional[Dict[str, Any]] = None
+    if reasoning_effort:
+        default_request_kwargs = {"extra_body": {"reasoning_effort": reasoning_effort}}
+
     llm = build_model_for_preset(
         model_name=model,
         family_id=family_id,
@@ -221,6 +268,7 @@ def _create_llm(model: str, llm_config: Optional[Dict[str, Any]] = None):
         max_tokens=max_tokens,
         timeout=timeout,
         context_window=context_window,
+        default_request_kwargs=default_request_kwargs,
         inference_key=llm_config.get("inference_key"),
     )
     _log_resolved_limits(
@@ -229,9 +277,11 @@ def _create_llm(model: str, llm_config: Optional[Dict[str, Any]] = None):
         max_tokens=llm.max_tokens,
         timeout=llm.timeout,
         context_window=llm.context_window,
+        reasoning_effort=reasoning_effort,
         max_tokens_source=max_tokens_source,
         timeout_source=timeout_source,
         context_source=context_source,
+        reasoning_effort_source=reasoning_effort_source,
     )
 
     return llm
