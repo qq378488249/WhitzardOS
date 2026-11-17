@@ -13,7 +13,7 @@ deploy/
 ├── README.md                          # 本文件
 ├── images/
 │   ├── cage-claude-code-cyberdebug.tar.gz     # 每任务 agent 镜像
-│   ├── qitos-cybergym-runner-1.0.7.tar.gz     # 跑批控制容器镜像
+│   ├── qitos-cybergym-runner-1.0.9.tar.gz     # 跑批控制容器镜像
 │   ├── SHA256SUMS
 │   └── README.md
 └── cybergym/
@@ -51,7 +51,7 @@ cd /path/to/deploy
 sha256sum -c images/SHA256SUMS
 
 docker load -i images/cage-claude-code-cyberdebug.tar.gz
-docker load -i images/qitos-cybergym-runner-1.0.7.tar.gz
+docker load -i images/qitos-cybergym-runner-1.0.9.tar.gz
 
 docker images | grep -E 'cage/claude-code:cyberdebug|qitos-cybergym-runner'
 ```
@@ -289,8 +289,8 @@ docker compose --env-file deploy/cybergym/.env \
 重建后可以重新导出镜像包：
 
 ```bash
-docker save qitos-cybergym-runner:1.0.7 qitos-cybergym-runner:local \
-  | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.7.tar.gz
+docker save qitos-cybergym-runner:1.0.9 qitos-cybergym-runner:local \
+  | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.9.tar.gz
 ```
 
 内网或访问 Docker Hub / PyPI 较慢的构建机可以通过构建参数换源：
@@ -308,7 +308,7 @@ docker compose --env-file deploy/cybergym/.env \
 
 | 现象 | 处理 |
 | --- | --- |
-| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-1.0.7.tar.gz` |
+| `runner image ... is missing` | `docker load -i images/qitos-cybergym-runner-1.0.9.tar.gz` |
 | `agent image ... is missing` | `docker load -i images/cage-claude-code-cyberdebug.tar.gz` |
 | `submit_poc` 连接被拒/超时 | 检查 `SERVER_URL`；同机用 `host.docker.internal` 时 server 必须监听 `0.0.0.0`，不是 `127.0.0.1` |
 | `Invalid task_id` | 验证服务启用了 mask map；设置同源的 `CYBERGYM_MASK_MAP` |
@@ -316,7 +316,7 @@ docker compose --env-file deploy/cybergym/.env \
 | 跑批一启动就退出 | 看 `docker compose ... logs cybergym-batch`；通常是路径、key 或镜像问题 |
 | 容器越积越多 | 启动脚本退出时会清理；如果被 `kill -9`，执行 `docker rm -f $(docker ps -aq --filter label=qitos.benchmark=cybergym)` |
 | OOM | 调低 `CONCURRENCY`，把 `RUN_ROOT` 放本地盘，删除旧的 `render_events.jsonl` |
-| 失败任务不重跑 | `--resume` 跳过 `OUTPUT_JSONL` 里已有的任务；删掉对应行 |
+| 失败任务不重跑 | 超时任务确认 `RETRY_TIMEOUT=1`（默认开启，最多 `MAX_ATTEMPTS` 次）；其它失败原因仍需从 `OUTPUT_JSONL` 删掉对应行后重启 |
 | `Unable to locate the CyberGym source tree` | `CYBERGYM_ROOT` 下没有 `src/cybergym/task/README.template` |
 
 ## 12. 安全提醒

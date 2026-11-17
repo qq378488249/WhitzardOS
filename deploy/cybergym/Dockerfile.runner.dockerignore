@@ -1,6 +1,8 @@
 # Build context for deploy/cybergym/Dockerfile.runner (repository root).
 .git
 .gitignore
+# Prebuilt offline image tarballs (~1 GB); never copied into the runner image.
+deploy/images
 **/__pycache__
 **/*.py[cod]
 **/.pytest_cache
