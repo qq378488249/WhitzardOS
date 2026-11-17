@@ -61,7 +61,7 @@ _PRESETS: tuple[FamilyPreset, ...] = (
     FamilyPreset(
         id="glm",
         display_name="GLM",
-        model_matchers=("glm-", "zai-org/glm-", "zai-org/glm"),
+        model_matchers=("glm-", "zai-org/glm-", "zai-org/glm", "glm5"),
         adapter_kind="openai-compatible",
         default_protocol="json_decision_multi_v1",
         fallback_protocols=("json_decision_v1", "xml_decision_v1", "react_text_v1"),
@@ -111,7 +111,7 @@ _PRESETS: tuple[FamilyPreset, ...] = (
     FamilyPreset(
         id="minimax",
         display_name="MiniMax",
-        model_matchers=("minimax-", "minimax/", "m2.5", "abab"),
+        model_matchers=("minimax-", "minimax/", "minimax", "m2.5", "abab"),
         adapter_kind="openai-compatible",
         default_protocol="minimax_tool_call_v1",
         fallback_protocols=("terminus_xml_v1", "terminus_json_v1", "json_decision_v1"),

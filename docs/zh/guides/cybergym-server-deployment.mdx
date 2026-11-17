@@ -188,6 +188,18 @@ sudo editor /etc/qitos/cybergym/level1-a.env
 `LLM_API_KEY` 用于模型调用，`CYBERGYM_GRADING_KEY` 用于 PoC 提交。启动脚本分别导出为 `OPENAI_API_KEY` / `CYBERGYM_CLAUDE_AUTH_TOKEN` 和 `CYBERGYM_API_KEY`；两者写反会表现为模型或验证服务"挂了"的认证错误。
 </Warning>
 
+### 可选的模型请求覆盖
+
+以下变量只为当前部署覆盖模型请求参数；留空则使用模型家族默认值（推理家族 `65536` 输出 token、`1800` 秒超时，其他模型 `8192` / `360` 秒，上下文窗口按模型名推断）。
+
+| 变量 | 覆盖内容 |
+| --- | --- |
+| `CYBERGYM_MAX_OUTPUT_TOKENS` | 单次模型请求的最大输出 token |
+| `CYBERGYM_LLM_TIMEOUT_SECONDS` | 单次请求超时（秒） |
+| `CYBERGYM_CONTEXT_WINDOW` | 用于输入/输出预算的上下文窗口 |
+
+代码显式传入的 `llm_config` 仍然优先于这些变量。非数字值会在启动时直接报错，而不是被静默忽略。
+
 ## 第 6 步 — 安装 systemd 单元
 
 单元文件调用一个稳定的启动脚本名：

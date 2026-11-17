@@ -188,6 +188,18 @@ Set at minimum:
 `LLM_API_KEY` authenticates model calls. `CYBERGYM_GRADING_KEY` authenticates PoC submissions. The launcher exports them separately (`OPENAI_API_KEY` / `CYBERGYM_CLAUDE_AUTH_TOKEN` vs `CYBERGYM_API_KEY`); swapping them produces authentication failures that look like model or grading outages.
 </Warning>
 
+### Optional model request overrides
+
+These variables override the model request values for one deployment; leave them unset to use the model family defaults (reasoning families get `65536` output tokens and a `1800` s timeout, other models `8192` / `360` s, and the context window is inferred from the model name).
+
+| Key | Overrides |
+| --- | --- |
+| `CYBERGYM_MAX_OUTPUT_TOKENS` | Maximum output tokens per model request |
+| `CYBERGYM_LLM_TIMEOUT_SECONDS` | Per-request timeout in seconds |
+| `CYBERGYM_CONTEXT_WINDOW` | Context window used for input/output budgeting |
+
+Explicit `llm_config` values passed by code still win over these variables. A non-numeric value fails the run at startup instead of being ignored.
+
 ## Step 6 — Install the systemd units
 
 The units call a stable launcher name:

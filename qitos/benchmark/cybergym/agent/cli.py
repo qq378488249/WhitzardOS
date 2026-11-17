@@ -32,18 +32,27 @@ def build_inference_task_id(benchmark_task_id: str) -> str:
     return f"cybergym-{slug}-{uuid.uuid4().hex[:12]}"
 
 
+_REASONING_FAMILIES = frozenset({"glm", "mimo", "deepseek", "minimax"})
+
+
 def infer_family_id(model: str) -> str | None:
-    """Map model names to the QitOS harness families that need run defaults."""
-    normalized_model = model.strip().lower()
-    if normalized_model.startswith("glm-") or normalized_model.startswith("zai-org/glm-") or normalized_model.startswith("glm5"):
-        return "glm"
-    if normalized_model.startswith(("mimo", "xiaomi/mimo")):
-        return "mimo"
-    if normalized_model.startswith(("deepseek", "ds-v4")):
-        return "deepseek"
-    if normalized_model.startswith(("minimax", "minimax-")):
-        return "minimax"
-    return None
+    """Map a served model name to the harness family that needs run defaults.
+
+    Gateways rename models (``ap-ds-v4-flash`` for DeepSeek v4), so this uses
+    the harness preset matcher rather than a second, stricter name list. A name
+    it failed to recognize silently fell back to the 8k output budget and the
+    360s timeout, which truncates a reasoning model mid-tool-call.
+    """
+    normalized_model = str(model or "").strip().lower()
+    if not normalized_model:
+        return None
+    try:
+        from qitos.harness import resolve_family_preset
+
+        family = resolve_family_preset(normalized_model).id
+    except (ImportError, ValueError):
+        return None
+    return family if family in _REASONING_FAMILIES else None
 
 
 def default_max_tokens_for_model(model: str) -> int:
@@ -61,6 +70,20 @@ def default_timeout_for_model(model: str) -> int:
     if infer_family_id(model) in {"glm", "mimo", "deepseek", "minimax"}:
         return REASONING_API_TIMEOUT
     return DEFAULT_API_TIMEOUT
+
+
+def _positive_int_from_env(name: str) -> int | None:
+    """Read an optional positive integer override from the environment."""
+    raw = str(os.environ.get(name, "") or "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be positive, got {value}")
+    return value
 
 
 def build_agent(
@@ -116,14 +139,34 @@ def _create_llm(model: str, llm_config: Optional[Dict[str, Any]] = None):
             "Pass --api-key and --base-url, or set OPENAI_API_KEY and OPENAI_BASE_URL."
         )
 
+    # Precedence: explicit llm_config > environment override > family default.
+    # The env knobs let a deployment tune one model endpoint without editing
+    # the family defaults in this file.
+    max_tokens = llm_config.get("max_tokens")
+    if max_tokens is None:
+        max_tokens = _positive_int_from_env("CYBERGYM_MAX_OUTPUT_TOKENS")
+    if max_tokens is None:
+        max_tokens = default_max_tokens_for_model(model)
+
+    timeout = llm_config.get("timeout")
+    if timeout is None:
+        timeout = _positive_int_from_env("CYBERGYM_LLM_TIMEOUT_SECONDS")
+    if timeout is None:
+        timeout = default_timeout_for_model(model)
+
+    context_window = llm_config.get("context_window")
+    if context_window is None:
+        context_window = _positive_int_from_env("CYBERGYM_CONTEXT_WINDOW")
+
     llm = build_model_for_preset(
         model_name=model,
         family_id=family_id,
         api_key=api_key,
         base_url=base_url,
         temperature=llm_config.get("temperature", 0.7),
-        max_tokens=llm_config.get("max_tokens", default_max_tokens_for_model(model)),
-        timeout=llm_config.get("timeout", default_timeout_for_model(model)),
+        max_tokens=max_tokens,
+        timeout=timeout,
+        context_window=context_window,
         inference_key=llm_config.get("inference_key"),
     )
 
