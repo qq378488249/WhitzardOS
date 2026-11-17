@@ -198,7 +198,7 @@ These variables override the model request values for one deployment; leave them
 | `CYBERGYM_LLM_TIMEOUT_SECONDS` | Per-request timeout in seconds |
 | `CYBERGYM_CONTEXT_WINDOW` | Context window used for input/output budgeting |
 
-Explicit `llm_config` values passed by code still win over these variables. A non-numeric value fails the run at startup instead of being ignored.
+Explicit `llm_config` values passed by code still win over these variables. A non-numeric value fails the run at startup instead of being ignored. The first task of a batch prints the effective values, their source, and the resolved model family once (`[CyberGym] model request limits: model=… family=… max_output_tokens=… timeout=… context_window=…`), so the batch log confirms what the run actually used.
 
 ## Step 6 — Install the systemd units
 

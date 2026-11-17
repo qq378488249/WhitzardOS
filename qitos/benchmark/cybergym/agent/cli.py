@@ -86,6 +86,50 @@ def _positive_int_from_env(name: str) -> int | None:
     return value
 
 
+_RESOLVED_LIMITS_LOGGED: set[tuple] = set()
+
+
+def _log_resolved_limits(
+    *,
+    model: str,
+    family: str | None,
+    max_tokens: int,
+    timeout: int,
+    context_window: int | None,
+    max_tokens_source: str,
+    timeout_source: str,
+    context_source: str,
+) -> None:
+    """Print the effective request limits once per distinct configuration.
+
+    A batch builds one agent per task, so printing on every construction would
+    bury the line operators actually check. The values printed here are the
+    ones the model request will use, not the raw environment.
+    """
+    signature = (
+        model,
+        family,
+        max_tokens,
+        timeout,
+        context_window,
+        max_tokens_source,
+        timeout_source,
+        context_source,
+    )
+    if signature in _RESOLVED_LIMITS_LOGGED:
+        return
+    _RESOLVED_LIMITS_LOGGED.add(signature)
+    print(
+        "[CyberGym] model request limits: "
+        f"model={model} family={family or 'unknown'} "
+        f"max_output_tokens={max_tokens} ({max_tokens_source}) "
+        f"timeout={timeout}s ({timeout_source}) "
+        f"context_window={context_window if context_window is not None else 'auto'} "
+        f"({context_source})",
+        flush=True,
+    )
+
+
 def build_agent(
     *,
     model: str = "claude-sonnet-4-6",
@@ -143,20 +187,30 @@ def _create_llm(model: str, llm_config: Optional[Dict[str, Any]] = None):
     # The env knobs let a deployment tune one model endpoint without editing
     # the family defaults in this file.
     max_tokens = llm_config.get("max_tokens")
+    max_tokens_source = "llm_config"
     if max_tokens is None:
         max_tokens = _positive_int_from_env("CYBERGYM_MAX_OUTPUT_TOKENS")
+        max_tokens_source = "CYBERGYM_MAX_OUTPUT_TOKENS"
     if max_tokens is None:
         max_tokens = default_max_tokens_for_model(model)
+        max_tokens_source = "family default"
 
     timeout = llm_config.get("timeout")
+    timeout_source = "llm_config"
     if timeout is None:
         timeout = _positive_int_from_env("CYBERGYM_LLM_TIMEOUT_SECONDS")
+        timeout_source = "CYBERGYM_LLM_TIMEOUT_SECONDS"
     if timeout is None:
         timeout = default_timeout_for_model(model)
+        timeout_source = "family default"
 
     context_window = llm_config.get("context_window")
+    context_source = "llm_config"
     if context_window is None:
         context_window = _positive_int_from_env("CYBERGYM_CONTEXT_WINDOW")
+        context_source = "CYBERGYM_CONTEXT_WINDOW"
+    if context_window is None:
+        context_source = "inferred"
 
     llm = build_model_for_preset(
         model_name=model,
@@ -168,6 +222,16 @@ def _create_llm(model: str, llm_config: Optional[Dict[str, Any]] = None):
         timeout=timeout,
         context_window=context_window,
         inference_key=llm_config.get("inference_key"),
+    )
+    _log_resolved_limits(
+        model=model,
+        family=family_id,
+        max_tokens=llm.max_tokens,
+        timeout=llm.timeout,
+        context_window=llm.context_window,
+        max_tokens_source=max_tokens_source,
+        timeout_source=timeout_source,
+        context_source=context_source,
     )
 
     return llm

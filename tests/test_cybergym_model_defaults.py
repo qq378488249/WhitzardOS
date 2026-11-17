@@ -108,3 +108,25 @@ def test_invalid_environment_override_fails_fast(
 
     with pytest.raises(ValueError, match="CYBERGYM_MAX_OUTPUT_TOKENS"):
         _build_llm()
+
+
+def test_resolved_model_limits_are_printed_once(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CYBERGYM_MAX_OUTPUT_TOKENS", "5432")
+    monkeypatch.setenv("CYBERGYM_LLM_TIMEOUT_SECONDS", "42")
+    monkeypatch.setenv("CYBERGYM_CONTEXT_WINDOW", "777777")
+
+    _build_llm(model="ap-ds-v4-flash-printcheck")
+    out = capsys.readouterr().out
+
+    assert "model=ap-ds-v4-flash-printcheck" in out
+    assert "family=deepseek" in out
+    assert "max_output_tokens=5432 (CYBERGYM_MAX_OUTPUT_TOKENS)" in out
+    assert "timeout=42s (CYBERGYM_LLM_TIMEOUT_SECONDS)" in out
+    assert "context_window=777777 (CYBERGYM_CONTEXT_WINDOW)" in out
+
+    # A batch builds one agent per task; the line prints once per configuration.
+    _build_llm(model="ap-ds-v4-flash-printcheck")
+    assert capsys.readouterr().out == ""
