@@ -84,6 +84,7 @@ How to update:
 - Fixed CyberGym batch trace/result/render redaction so API keys and auth token markers are scrubbed before persisted artifacts are written.
 - Fixed CyberGym PoC generation runs so benchmark-local Bash commands can run without interactive command review while the default coding toolset review guard remains intact.
 - Fixed tool registration with name overrides so CyberGym uppercase aliases do not mutate source tool specs shared with ordinary coding toolsets.
+- Fixed `deploy/cybergym/compose-preflight.sh` pointing users at the wrong runner tarball when the image is missing. The failure hint still said `qitos-cybergym-runner-1.0.9.tar.gz`, so a user following the `docker load` tip would pull the stale 1.0.9 build (which predates the gateway fixes and `CYBERGYM_REASONING_EFFORT`) while the README and compose examples already target 1.0.11; the hint now names `1.0.11`.
 
 ## v0.6.0 (2026-05-28)
 
