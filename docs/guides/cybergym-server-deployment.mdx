@@ -250,8 +250,9 @@ The batch container is a **control container**, not a sandbox for the agent. The
 - 32-bit and sanitizer runtime libraries (`libc6-i386`, `libasan8`, `lib32asan8`, …) for inspecting target binaries
 
 The repository also ships the built image as
-`deploy/images/qitos-cybergym-runner-local.tar.gz`, so a server only needs
-`deploy/` plus the host data to start.
+`deploy/images/qitos-cybergym-runner-1.0.12.tar.gz`, so a server only needs
+`deploy/` plus the host data to start. Set `RUNNER_IMAGE_TAG=1.0.12` in `.env`
+to select the same explicit tag for preflight and Compose.
 
 It does **not** contain the CyberGym source, task corpus, vulnerable binaries, the per-task agent image, or the verification server. Those stay on the host or run separately.
 
@@ -275,6 +276,7 @@ Set at least:
 | --- | --- |
 | `RUN_ROOT`, `TASK_FILE`, `GROUP_NAME`, `TRACE_PREFIX` | One run group; `TRACE_PREFIX` carries the agent version tag |
 | `CYBERGYM_ROOT`, `DATA_DIR`, `BINARY_DIR` | Host paths from the layout above. `WORKSPACE_ROOT`, `AGENT_ROOT`, `QITOS_ROOT`, and `PYTHON_BIN` are pinned by Compose |
+| `RUNNER_IMAGE_TAG` | Runner image version to load and run, for example `1.0.12`; preflight rejects `local` so the deployed build stays identifiable |
 | `SERVER_URL` | Address of the verification server you started separately: `http://host.docker.internal:6441` when it runs on this host, or `http://10.0.0.5:6441` for another machine. Do **not** use `127.0.0.1` from the bridge-networked batch container |
 | `BASE_URL`, `MODEL_NAME`, `LLM_API_KEY` | `BASE_URL` **must** end with `/v1` |
 | `CYBERGYM_GRADING_KEY` | Must match the verification server; never reuse `LLM_API_KEY` |
@@ -293,7 +295,7 @@ bash deploy/cybergym/compose-preflight.sh deploy/cybergym/.env
 ```bash
 # Prebuilt images are shipped in deploy/images/.
 docker load -i deploy/images/cage-claude-code-cyberdebug.tar.gz
-docker load -i deploy/images/qitos-cybergym-runner-local.tar.gz
+docker load -i deploy/images/qitos-cybergym-runner-1.0.12.tar.gz
 
 docker compose --env-file deploy/cybergym/.env   -f deploy/cybergym/compose.yaml up -d
 
@@ -324,7 +326,7 @@ docker compose --env-file deploy/cybergym/.env   -f deploy/cybergym/compose.yaml
 Re-export the bundle after a rebuild:
 
 ```bash
-docker save qitos-cybergym-runner:local | gzip -1 >   deploy/images/qitos-cybergym-runner-local.tar.gz
+docker save qitos-cybergym-runner:1.0.12 | gzip -1 > deploy/images/qitos-cybergym-runner-1.0.12.tar.gz
 ```
 
 On networks where Docker Hub or Debian mirrors are slow, override the build bases:

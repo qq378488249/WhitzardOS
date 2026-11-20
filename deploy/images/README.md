@@ -5,13 +5,13 @@
 | 文件 | 镜像 | 大小（压缩后） | 用途 |
 | --- | --- | --- | --- |
 | `cage-claude-code-cyberdebug.tar.gz` | `cage/claude-code:cyberdebug` | ≈ 290 MB | 每个任务一个 agent 容器 |
-| `qitos-cybergym-runner-1.0.11.tar.gz` | `qitos-cybergym-runner:1.0.11`、`qitos-cybergym-runner:local` | ≈ 250 MB | 跑批控制容器 |
+| `qitos-cybergym-runner-1.0.12.tar.gz` | `qitos-cybergym-runner:1.0.12` | ≈ 240 MB | 跑批控制容器 |
 
 ## 导入
 
 ```bash
 docker load -i deploy/images/cage-claude-code-cyberdebug.tar.gz
-docker load -i deploy/images/qitos-cybergym-runner-1.0.11.tar.gz
+docker load -i deploy/images/qitos-cybergym-runner-1.0.12.tar.gz
 ```
 
 确认标签：
@@ -28,21 +28,25 @@ cd deploy/images && sha256sum -c SHA256SUMS
 
 ## 说明
 
-- 镜像标签已经固定，`compose.yaml` 直接使用 `qitos-cybergym-runner:local` 和
-  `cage/claude-code:cyberdebug`，导入后不需要重新打 tag。runner 包同时带有
-  `qitos-cybergym-runner:1.0.11` 版本标签，便于按版本核对部署；`1.0.2` 到
-  `1.0.10` 的 tar 包保留，可用于回滚（`1.0.10` 是网关别名/请求覆盖/DSML 抢救版
-  但不含 `CYBERGYM_REASONING_EFFORT`，`1.0.9` 是超时重跑版，`1.0.8` 是
-  staged-binary 可见性修复版但不含超时重跑，`1.0.7` 早于两者，`1.0.6` 早于断点续跑，
-  `1.0.5` 早于服务端 vul/fix 判定修复，`1.0.4` 早于每任务简报功能）。
-- runner 当前版本 `1.0.11` 在 `qitos_final_guard` 线（含 `qitos_cybergym_v2`）
-  上构建，除 `1.0.10` 的四组修复（网关别名家族匹配、`CYBERGYM_MAX_OUTPUT_TOKENS`
-  / `CYBERGYM_LLM_TIMEOUT_SECONDS` / `CYBERGYM_CONTEXT_WINDOW` 请求覆盖与启动日志、
-  DeepSeek DSML 完整块抢救、失败生成不再被当作 final）外，新增
-  `CYBERGYM_REASONING_EFFORT`：按官方取值（`none`/`minimal`/`low`/`medium`/`high`/
-  `xhigh`/`max`）经 `extra_body` 发送推理强度，留空则不发送、用端点默认。本包仍
-  **不含** `1.0.8` 的 staged-binary 可见性修复（该修复在 `qitos_cybergym` 线上，
-  需要动态分析看到 `/out` 时回滚 `1.0.8`）。
+- 镜像标签已经固定，`compose.yaml` 通过 `.env` 里的 `RUNNER_IMAGE_TAG` 拼出
+  `qitos-cybergym-runner:<tag>`（当前 `1.0.12`），agent 镜像用
+  `cage/claude-code:cyberdebug`，导入后不需要重新打 tag。runner 包只带明确的版本
+  标签，不再附带 `:local`，便于按版本核对部署；`1.0.2` 到 `1.0.11` 的 tar 包保留，
+  可用于回滚（`1.0.11` 是推理强度版但不含未知家族兜底，`1.0.10` 是网关别名/请求
+  覆盖/DSML 抢救版但不含 `CYBERGYM_REASONING_EFFORT`，`1.0.9` 是超时重跑版，
+  `1.0.8` 是 staged-binary 可见性修复版但不含超时重跑，`1.0.7` 早于两者，
+  `1.0.6` 早于断点续跑，`1.0.5` 早于服务端 vul/fix 判定修复，`1.0.4` 早于每任务简报功能）。
+- runner 当前版本 `1.0.12` 在 `qitos_final_guard` 线（含 `qitos_cybergym_v2`）
+  上构建，在 `1.0.11` 的基础上新增**未知模型家族兜底**：没有专属 preset 的模型名
+  （例如 `beam-free`）不再以 `Unknown QitOS model family preset` 报错，而是落到中性
+  `generic` OpenAI-compatible preset（优先原生工具调用、JSON 决策协议带文本回退、
+  不推断上下文窗口），端点限额仍可用 `CYBERGYM_MAX_OUTPUT_TOKENS` /
+  `CYBERGYM_LLM_TIMEOUT_SECONDS` / `CYBERGYM_CONTEXT_WINDOW` 覆盖。`1.0.11` 的
+  `CYBERGYM_REASONING_EFFORT`（按官方取值 `none`/`minimal`/`low`/`medium`/`high`/
+  `xhigh`/`max` 经 `extra_body` 发送推理强度，留空用端点默认）与 `1.0.10` 的四组修复
+  （网关别名家族匹配、请求覆盖与启动日志、DeepSeek DSML 完整块抢救、失败生成不再被
+  当作 final）继续保留。本包仍**不含** `1.0.8` 的 staged-binary 可见性修复（该修复在
+  `qitos_cybergym` 线上，需要动态分析看到 `/out` 时回滚 `1.0.8`）。
 - `1.0.9` 在 `1.0.7` 的基础上加入了超时任务重跑：
   `--resume --retry-timeout` 把上一轮停在 `budget_time` / `interrupt` 的任务
   重新排队，`--max-attempts`（默认 3）封顶反复超时，结果行记录 `attempts` 并

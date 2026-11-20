@@ -34,7 +34,7 @@ docker compose version >/dev/null 2>&1 || fail "docker compose is not available"
 [[ -f "$ENV_FILE" ]] || fail "env file not found: $ENV_FILE (copy deploy/cybergym/.env.compose.example)"
 load_env "$ENV_FILE"
 
-for var in RUN_ROOT CYBERGYM_ROOT DATA_DIR BINARY_DIR TASK_FILE SERVER_URL BASE_URL LLM_API_KEY CYBERGYM_GRADING_KEY; do
+for var in RUN_ROOT CYBERGYM_ROOT DATA_DIR BINARY_DIR TASK_FILE SERVER_URL BASE_URL LLM_API_KEY CYBERGYM_GRADING_KEY RUNNER_IMAGE_TAG; do
   [[ -n "${!var:-}" ]] || fail "$var is empty (set it in $ENV_FILE)"
 done
 
@@ -60,9 +60,11 @@ mkdir -p "$RUN_ROOT/server_poc"
 
 docker image inspect cage/claude-code:cyberdebug >/dev/null 2>&1 \
   || fail "agent image cage/claude-code:cyberdebug is missing; docker load deploy/images/cage-claude-code-cyberdebug.tar.gz"
-docker image inspect qitos-cybergym-runner:local >/dev/null 2>&1 \
-  || fail "runner image qitos-cybergym-runner:local is missing; docker load deploy/images/qitos-cybergym-runner-1.0.11.tar.gz"
-echo "runner image: qitos-cybergym-runner:local (present)"
+[[ "$RUNNER_IMAGE_TAG" != "local" ]] \
+  || fail "RUNNER_IMAGE_TAG must be an explicit version tag, not local"
+docker image inspect "qitos-cybergym-runner:${RUNNER_IMAGE_TAG}" >/dev/null 2>&1 \
+  || fail "runner image qitos-cybergym-runner:${RUNNER_IMAGE_TAG} is missing; docker load deploy/images/qitos-cybergym-runner-${RUNNER_IMAGE_TAG}.tar.gz"
+echo "runner image: qitos-cybergym-runner:${RUNNER_IMAGE_TAG} (present)"
 
 if [[ "$SERVER_URL" == *"host.docker.internal"* ]]; then
   echo "server      : $SERVER_URL (resolved inside the container; host-side check skipped)"

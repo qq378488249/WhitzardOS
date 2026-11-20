@@ -5,7 +5,7 @@
 #
 # Usage (from the repository root; from deploy/ drop the deploy/ prefix):
 #   docker load -i deploy/images/cage-claude-code-cyberdebug.tar.gz
-#   docker load -i deploy/images/qitos-cybergym-runner-1.0.11.tar.gz
+#   docker load -i deploy/images/qitos-cybergym-runner-1.0.12.tar.gz
 #   cp deploy/cybergym/.env.compose.example deploy/cybergym/.env
 #   $EDITOR deploy/cybergym/.env
 #   bash deploy/cybergym/compose-preflight.sh
@@ -26,7 +26,7 @@ name: qitos-cybergym-batch
 
 services:
   cybergym-batch:
-    image: qitos-cybergym-runner:local
+    image: qitos-cybergym-runner:${RUNNER_IMAGE_TAG:?set RUNNER_IMAGE_TAG in deploy/cybergym/.env}
     env_file:
       - .env
     # These override .env on purpose: the same values drive both the bind
