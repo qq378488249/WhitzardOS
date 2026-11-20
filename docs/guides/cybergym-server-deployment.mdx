@@ -432,6 +432,7 @@ Two placement rules matter as much as the concurrency number:
 
 - Write `RUN_ROOT` to a **local filesystem** (ext4/xfs), not to a network mount or Windows drive (`drvfs`); trace writes are the dominant I/O.
 - Delete `render_events.jsonl` after a run finishes if disk is tight; keep `pocs/`, `workspace/`, and `poc.db`.
+- During a long batch, run `deploy/cybergym/prune_run_logs.py --run-root "$RUN_ROOT" --min-free-gb 3` on the host if disk is tight. It prunes only completed tasks, and only when free space on `PRUNE_HOST_MOUNT` (default `/mnt/d`) falls below the threshold; skip it if you need every trace for analysis.
 
 ## Restart and resume semantics
 

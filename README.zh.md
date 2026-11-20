@@ -18,6 +18,7 @@ QitOS 主仓库是小而清晰的核心框架。产品级 / 展示级应用会�
 
 ## 最新进展
 
+- **CyberGym 轨迹按磁盘压力清理**：`deploy/cybergym/prune_run_logs.py` 监视批次报告，只在宿主机剩余空间低于阈值时清理已完成任务的轨迹、工作区和 checkpoint，正常运行时保留轨迹供复盘。
 - **OpenCode 网关请求自动补齐客户端头**：`deploy/cybergym/opencode_relay.py` 是纯标准库的本地转发器，把 `/v1/*` 转发到 OpenCode Zen/Go，并注入 coding-agent `User-Agent` 与稳定的 `x-opencode-session`，满足网关路由与提示缓存要求。
 - **未知模型名不再阻断运行**：harness 预设解析在找不到专属家族时回退到中性的 `generic` OpenAI-compatible 预设（优先原生工具调用、JSON 决策带文本回退、不推断上下文窗口），不再抛 `Unknown QitOS model family preset`；端点限额仍可用 `CYBERGYM_*` 覆盖。
 - **跑批镜像 1.0.12 改用显式版本标签**：导入 `deploy/images/qitos-cybergym-runner-1.0.12.tar.gz`，并在 `deploy/cybergym/.env` 设置 `RUNNER_IMAGE_TAG=1.0.12`；预检和 Compose 统一使用该标签，不再依赖 `:local`。镜像在 1.0.11 推理强度与更早的网关修复之上包含未知模型兜底。

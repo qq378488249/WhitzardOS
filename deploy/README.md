@@ -23,6 +23,7 @@ deploy/
     ├── compose.build.yaml             # 可选：从源码重建 runner
     ├── compose-preflight.sh           # 启动前自检
     ├── opencode_relay.py              # 可选：OpenCode 网关请求转发
+    ├── prune_run_logs.py              # 可选：磁盘紧张时清理已完成轨迹
     ├── Dockerfile.runner              # runner 镜像构建文件
     ├── Dockerfile.runner.dockerignore
     ├── docker-entrypoint.sh

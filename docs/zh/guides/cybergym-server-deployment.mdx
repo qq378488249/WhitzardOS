@@ -432,6 +432,7 @@ bash deploy/cybergym/score.sh --since "2026-11-06 08:00:00"
 
 - `RUN_ROOT` 必须放在**本地文件系统**（ext4/xfs），不要放网络盘或 Windows 盘（`drvfs`）；轨迹写入是主要 I/O。
 - 磁盘紧张时，在 run 结束后删掉 `render_events.jsonl`；保留 `pocs/`、`workspace/` 和 `poc.db`。
+- 长批次运行期间如果磁盘吃紧，可在宿主机运行 `deploy/cybergym/prune_run_logs.py --run-root "$RUN_ROOT" --min-free-gb 3`：它只清理已完成任务，且只在 `PRUNE_HOST_MOUNT`（默认 `/mnt/d`）剩余空间低于阈值时动手；需要保留全部轨迹时可跳过。
 
 ## 重启与续跑语义
 

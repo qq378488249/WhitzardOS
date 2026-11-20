@@ -11,6 +11,7 @@
 | `compose.build.yaml` | 可选覆盖：从源码重建 runner 镜像 |
 | `compose-preflight.sh` | 启动前自检 |
 | `opencode_relay.py` | 可选：本地转发 OpenCode 请求并补齐客户端头 |
+| `prune_run_logs.py` | 可选：磁盘紧张时清理已完成任务的轨迹与 checkpoint |
 | `score.sh` | 在 runner 镜像里运行 server 判分脚本 |
 | `report.sh` | 手动查看某个批次的简洁每任务报告（默认读 `*.report.jsonl`） |
 | `trace_report.sh` | 在 traces 目录下查看每个已完成任务的成功/失败原因 |
@@ -50,6 +51,16 @@ RELAY_PORT=8899 python3 deploy/cybergym/opencode_relay.py
 ```
 
 然后把 `.env` 里的 `BASE_URL` 写成 `http://host.docker.internal:8899/v1`。上游地址用 `OPENCODE_UPSTREAM` 覆盖；设置 `OPENCODE_SESSION` 可固定缓存会话，留空则每个转发进程生成一个。
+
+## 磁盘空间兜底清理（可选）
+
+长批次会在每个任务留下数百 MB 轨迹、工作区和 checkpoint。宿主机上启动清理器：
+
+```bash
+python3 deploy/cybergym/prune_run_logs.py --run-root /path/to/run --min-free-gb 3
+```
+
+它监视 `results.report.jsonl`，只在 `PRUNE_HOST_MOUNT`（默认 `/mnt/d`）剩余空间低于阈值时才删掉已完成任务的 `traces/`、`workspace/` 和 `checkpoints/`；平时保留轨迹供复盘。
 
 ## 从源码重建
 
