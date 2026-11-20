@@ -32,6 +32,17 @@ def test_resolve_family_preset_for_mimo_family() -> None:
     assert resolve_family_preset("xiaomi/mimo-v2.6-flash").id == "mimo"
 
 
+def test_unknown_model_name_falls_back_to_generic_preset() -> None:
+    preset = resolve_family_preset("beam-free")
+    assert preset.id == "generic"
+    harness = build_harness_policy(model_name="beam-free")
+    assert harness.family_preset.id == "generic"
+    assert harness.protocol.id == "json_decision_v1"
+    assert harness.tool_policy.primary_delivery == "api_parameter"
+    assert harness.tool_policy.native_tool_call_preferred is True
+    assert harness.context_policy.context_window_hint is None
+
+
 def test_build_harness_policy_keeps_mimo_multi_action_chain() -> None:
     harness = build_harness_policy(model_name="mimo-v2.6-flash")
     assert harness.family_preset.id == "mimo"

@@ -7,6 +7,31 @@ from typing import Iterable
 from ._types import ContextPolicy, FamilyPreset, ToolPolicy
 
 
+_GENERIC_PRESET = FamilyPreset(
+    id="generic",
+    display_name="Generic OpenAI-compatible",
+    model_matchers=(),
+    adapter_kind="openai-compatible",
+    default_protocol="json_decision_v1",
+    fallback_protocols=("xml_decision_v1", "react_text_v1"),
+    tool_policy=ToolPolicy(
+        primary_delivery="api_parameter",
+        fallback_delivery="prompt_injection",
+        native_tool_call_preferred=True,
+        notes="Unknown model families keep native OpenAI-compatible tool calls and fall back to text parsing.",
+    ),
+    context_policy=ContextPolicy(
+        fallback_context_window=128_000,
+        notes="No window is inferred for unknown model names; deployments should set an explicit context window when the endpoint serves more.",
+    ),
+    notes="Neutral fallback for model names without a dedicated preset. Endpoint-specific limits stay tunable through the CYBERGYM_MAX_OUTPUT_TOKENS / CYBERGYM_LLM_TIMEOUT_SECONDS / CYBERGYM_CONTEXT_WINDOW overrides.",
+    recommended_max_steps=30,
+    recommended_max_tokens=500_000,
+    recommended_retry_budget=3,
+    recommended_temperature=0.2,
+)
+
+
 _PRESETS: tuple[FamilyPreset, ...] = (
     FamilyPreset(
         id="qwen",
@@ -268,6 +293,7 @@ _PRESETS: tuple[FamilyPreset, ...] = (
         recommended_temperature=0.2,
         recommended_request_kwargs={"parallel_tool_calls": True},
     ),
+    _GENERIC_PRESET,
 )
 
 
@@ -282,4 +308,6 @@ def resolve_builtin_preset(value: str | None) -> FamilyPreset:
     for preset in _PRESETS:
         if preset.matches(normalized):
             return preset
-    raise ValueError(f"Unknown QitOS model family preset: {value}")
+    # The preset list is a tuning surface, not a closed registry: unknown names
+    # still need a usable harness, so fall back to the neutral preset.
+    return _GENERIC_PRESET

@@ -18,6 +18,7 @@ QitOS 主仓库是小而清晰的核心框架。产品级 / 展示级应用会�
 
 ## 最新进展
 
+- **未知模型名不再阻断运行**：harness 预设解析在找不到专属家族时回退到中性的 `generic` OpenAI-compatible 预设（优先原生工具调用、JSON 决策带文本回退、不推断上下文窗口），不再抛 `Unknown QitOS model family preset`；端点限额仍可用 `CYBERGYM_*` 覆盖。
 - **CyberGym 任务支持断点续跑**：可选的按任务 checkpoint（`--checkpoint-dir`、`--continue-from-checkpoint`）让撞墙钟、被 OOM 或外部杀掉的任务从最后完成的步骤继续，而不是从第 0 步重跑。引擎的 `resume_from_checkpoint` 现在会按 checkpoint 记录的状态类重建 state、保留原始任务与 checkpoint 线程，并清掉上一轮的停止标记；轨迹中可看到 `resumed_from_step` 和 checkpoint 链 id。墙钟预算按每次尝试重新计算，步数预算继续累计。
 - **LLM 重试策略设计文档**：新增 `docs/superpowers/specs/2026-11-12-llm-call-retry-strategy-design.md`，记录统一的模型调用重试设计（调用边界 `LLMCallError` 包装、可恢复分类、连续失败上限、渐进式退避与上下文溢出处理）。
 - **中途 401 / 网关 5xx / 其它 LLM 错误不再终止运行**：模型网关返回 `401`（密钥被轮换/过期、网关重载凭证）现在会像 stream timeout 一样重试，而不是立刻以 `unrecoverable_error` 结束任务；网关 `502`/`503`/`504`（`ServiceUnavailableError`、`gateway timeout`）同样重试——litellm 的 `ServiceUnavailableError` 不含空格，之前匹配不到 `service unavailable`。更进一步，模型调用抛出的任何异常都会被包装成可恢复的模型错误，新网关错误格式不再需要补匹配规则。重试沿用连续恢复上限（`QITOS_MAX_RECOVERIES`，默认 100），并在每次重试前等待渐进式间隔（`QITOS_RECOVERY_BACKOFF` 基础 1 秒，逐次翻倍，上限 `QITOS_RECOVERY_BACKOFF_MAX` 默认 30 秒）；密钥彻底失效时仍会在重试耗尽后停止。
