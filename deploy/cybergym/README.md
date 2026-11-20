@@ -10,6 +10,7 @@
 | `compose.yaml` | 单服务 Compose，仅运行 batch；server 在外部 |
 | `compose.build.yaml` | 可选覆盖：从源码重建 runner 镜像 |
 | `compose-preflight.sh` | 启动前自检 |
+| `opencode_relay.py` | 可选：本地转发 OpenCode 请求并补齐客户端头 |
 | `score.sh` | 在 runner 镜像里运行 server 判分脚本 |
 | `report.sh` | 手动查看某个批次的简洁每任务报告（默认读 `*.report.jsonl`） |
 | `trace_report.sh` | 在 traces 目录下查看每个已完成任务的成功/失败原因 |
@@ -39,6 +40,16 @@ docker compose --env-file cybergym/.env \
 验证服务由你在别处启动，`.env` 里的 `SERVER_URL` 指向它。同机使用时用
 `http://host.docker.internal:6441`，server 必须监听 `0.0.0.0`，不能只绑
 `127.0.0.1`。
+
+## OpenCode 网关转发（可选）
+
+OpenCode Zen/Go 会拒绝没有 coding-agent `User-Agent` 和 `x-opencode-session` 的请求。在跑批宿主机启动转发器：
+
+```bash
+RELAY_PORT=8899 python3 deploy/cybergym/opencode_relay.py
+```
+
+然后把 `.env` 里的 `BASE_URL` 写成 `http://host.docker.internal:8899/v1`。上游地址用 `OPENCODE_UPSTREAM` 覆盖；设置 `OPENCODE_SESSION` 可固定缓存会话，留空则每个转发进程生成一个。
 
 ## 从源码重建
 

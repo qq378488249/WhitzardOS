@@ -290,6 +290,16 @@ Check the host layout before starting. The script creates `RUN_ROOT`, verifies t
 bash deploy/cybergym/compose-preflight.sh deploy/cybergym/.env
 ```
 
+### Route through an OpenCode gateway
+
+OpenCode Zen/Go endpoints reject requests without a coding-agent `User-Agent` and a stable `x-opencode-session` header, which the OpenAI SDK does not send. Run `deploy/cybergym/opencode_relay.py` on the batch host to inject both headers and forward `/v1/*` to `OPENCODE_UPSTREAM` (default `https://opencode.ai/zen/go`), then point `BASE_URL` at `http://host.docker.internal:8899/v1`:
+
+```bash
+RELAY_PORT=8899 python3 deploy/cybergym/opencode_relay.py
+```
+
+The relay uses only the standard library and streams responses through. Set `OPENCODE_SESSION` to pin one session id for prompt caching; leave it unset to generate one per relay process.
+
 ### Start
 
 ```bash

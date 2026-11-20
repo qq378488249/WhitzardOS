@@ -18,6 +18,7 @@ QitOS core is the small framework. Product-grade applications and showcase agent
 
 ## What's New
 
+- **OpenCode gateway requests get the required client headers**: `deploy/cybergym/opencode_relay.py` is a stdlib-only local relay that forwards `/v1/*` to an OpenCode Zen/Go endpoint while injecting a coding-agent `User-Agent` and a stable `x-opencode-session` header for routing and prompt caching.
 - **Unknown model names no longer block a run**: harness preset resolution now falls back to a neutral `generic` OpenAI-compatible preset (native tool calls, JSON decisions with text fallbacks, no inferred context window) instead of raising `Unknown QitOS model family preset`; endpoint-specific limits remain tunable through the `CYBERGYM_*` overrides.
 - **Runner image 1.0.12 uses an explicit tag**: load `deploy/images/qitos-cybergym-runner-1.0.12.tar.gz` and set `RUNNER_IMAGE_TAG=1.0.12` in `deploy/cybergym/.env`; preflight and Compose now resolve one versioned runner image instead of `:local`. The image carries the unknown-model generic fallback on top of the 1.0.11 reasoning-effort and earlier gateway fixes.
 - **Complete DeepSeek DSML tool calls are salvaged**: when a gateway leaks a full `<｜DSML｜tool_calls>` block into `content`, the engine lets the normal parser chain run first, then restores the encoded action (validated against the tool registry). Truncated blocks and unknown tool names still go through parser repair, and orphan closing tags no longer end a run as a final answer.

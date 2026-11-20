@@ -290,6 +290,16 @@ $EDITOR deploy/cybergym/.env
 bash deploy/cybergym/compose-preflight.sh deploy/cybergym/.env
 ```
 
+### 通过 OpenCode 网关转发
+
+OpenCode Zen/Go 会拒绝没有 coding-agent `User-Agent` 和稳定 `x-opencode-session` 头的请求，而 OpenAI SDK 默认不发送这两个头。在跑批宿主机运行 `deploy/cybergym/opencode_relay.py`，它会注入这两个头并把 `/v1/*` 转发到 `OPENCODE_UPSTREAM`（默认 `https://opencode.ai/zen/go`），然后把 `BASE_URL` 指向 `http://host.docker.internal:8899/v1`：
+
+```bash
+RELAY_PORT=8899 python3 deploy/cybergym/opencode_relay.py
+```
+
+转发器只依赖标准库，响应以流式透传。设置 `OPENCODE_SESSION` 可固定提示缓存会话，留空则每个进程生成一个。
+
 ### 启动
 
 ```bash
