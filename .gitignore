@@ -187,3 +187,14 @@ deploy/images/*.tar.gz
 
 # Local env backups (contain secrets)
 deploy/cybergym/.env.backup*
+
+# Local CyberGym host-run deployment artifacts (contain API keys / host paths)
+deploy/cybergym/*.env
+!deploy/cybergym/.env.compose.example
+!deploy/cybergym/.env.systemd.example
+!deploy/cybergym/.env.backup-*
+!deploy/cybergym/.env.bak-*
+!deploy/cybergym/.env
+
+# Local CyberGym host-test configs (contain API keys; never commit)
+deploy/cybergym/local-test/

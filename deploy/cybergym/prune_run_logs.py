@@ -42,6 +42,22 @@ def _size(path: str) -> int:
     return total
 
 
+def _is_passing(row: dict) -> bool:
+    """Only a verified success may be pruned.
+
+    A task whose report says ``success`` without server-side verdicts, a
+    timeout (``budget_time``), or any other failure keeps every trace so it
+    can still be diagnosed. The verdict rule matches the repository scorer:
+    the vulnerable build must crash (exit code other than 0/300/None) and
+    the fixed build must be clean (exit code 0).
+    """
+    if str(row.get("stop_reason") or "") != "success":
+        return False
+    vul = row.get("vul_exit_code")
+    fix = row.get("fix_exit_code")
+    return isinstance(vul, int) and vul not in (0, 300) and fix == 0
+
+
 def _completed_task_ids(run_root: str) -> set[str]:
     ids: set[str] = set()
     path = os.path.join(run_root, "results.report.jsonl")
@@ -54,6 +70,8 @@ def _completed_task_ids(run_root: str) -> set[str]:
                 try:
                     row = json.loads(line)
                 except json.JSONDecodeError:
+                    continue
+                if not _is_passing(row):
                     continue
                 task_id = str(row.get("task_id") or "")
                 if task_id.startswith("arvo:"):
@@ -103,7 +121,6 @@ def main() -> None:
             freed = 0
             for task_id in sorted(pending):
                 freed += _prune(args.run_root, task_id)
-            subprocess.run(["fstrim", "-a"], check=False, capture_output=True)
             pruned |= pending
             print(
                 f"[prune] free={free / 1024**3:.2f}GB < "
