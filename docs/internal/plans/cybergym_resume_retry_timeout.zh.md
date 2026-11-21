@@ -94,8 +94,7 @@ CyberGym 侧传入的集合直接复用
   “重启后继续推进未完成任务”的运维预期；设为 `0` 恢复旧行为。
 - `MAX_ATTEMPTS`，默认 `3`。
 
-两者写入运行时配置文件，并透传给批处理脚本。`.env.compose.example` 和
-`.env.systemd.example` 同步增加说明。
+两者写入运行时配置文件，并透传给批处理脚本。`.env.compose.example` 中同步增加说明（部署统一到 Compose 后，原有 systemd 模板已移除）。
 
 ### D5 — 与 checkpoint 续跑的关系
 

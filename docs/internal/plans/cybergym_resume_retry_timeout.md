@@ -104,7 +104,7 @@ for nearly every timed-out task. Cost is controlled with `--max-attempts`.
 - `MAX_ATTEMPTS`, default `3`.
 
 Both are written to the runtime config file and forwarded to the batch script.
-`.env.compose.example` and `.env.systemd.example` document them.
+`.env.compose.example` documents them (the former systemd template was removed when the deployment was consolidated on Compose).
 
 ### D5 — Relationship with checkpoint continuation
 

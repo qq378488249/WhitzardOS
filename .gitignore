@@ -198,3 +198,4 @@ deploy/cybergym/*.env
 
 # Local CyberGym host-test configs (contain API keys; never commit)
 deploy/cybergym/local-test/
+deploy/cybergym/.env

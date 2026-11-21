@@ -39,7 +39,7 @@ RUNTIME_CONFIG="${RUN_ROOT}/.v14_gdb_launch.env"
 # tmux may have been created by another shell and does not reliably inherit
 # arbitrary custom environment variables. Child modes therefore source a
 # mode-600 run-local config written by --launch. Explicit environment (for
-# example a systemd EnvironmentFile) wins over that file, so a stale run-local
+# example a Compose `environment:` entry) wins over that file, so a stale run-local
 # config cannot silently point a deployment at an old endpoint.
 if [[ "$MODE" != "--launch" && -f "$RUNTIME_CONFIG" ]]; then
   while IFS= read -r line || [[ -n "$line" ]]; do

@@ -268,4 +268,6 @@ How to update:
 
 ### Breaking
 
+- Removed the systemd deployment path for CyberGym batches: `.env.systemd.example`, `qitos-cybergym-batch@.service`, and `qitos-cybergym-server@.service` are gone, and Docker Compose is now the single supported deployment. Existing systemd users must migrate to `deploy/cybergym/compose.yaml` (see the updated deployment guides); the launcher and `.env.compose.example` are unchanged. Historical changelog entries and past experiment notes still mention systemd and are kept as-is.
+
 - Default root exports from `qitos.kit` and `qitos.kit.tool` no longer include advanced/security-audit convenience surfaces; import those explicitly from their module paths when needed.

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Container entrypoint for the CyberGym runner image.
 #
-# The group environment file is the same one the systemd units use. Two values
-# are adjusted for container networking:
-#   - PYTHON_BIN is the image interpreter, not the host virtualenv.
+# Two values are adjusted for container networking:
+#   - PYTHON_BIN is the image interpreter, not a host virtualenv.
 #   - The verification server must listen on all container interfaces so the
 #     batch container can reach it by service name; SERVER_URL defaults to that
 #     service name when the env file does not provide one.
@@ -16,7 +15,7 @@ export PYTHON_BIN=/usr/local/bin/python
 
 case "$MODE" in
   --server)
-    # A group env file written for systemd usually sets 127.0.0.1; inside a
+    # A group env file written for host-side runs usually sets 127.0.0.1; inside a
     # container that would be unreachable from the batch container.
     if [[ -z "${SERVER_HOST:-}" || "${SERVER_HOST}" == "127.0.0.1" ]]; then
       export SERVER_HOST=0.0.0.0

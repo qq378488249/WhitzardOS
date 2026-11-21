@@ -1,6 +1,6 @@
 ---
 title: "Deploy CyberGym batches on a server"
-description: "Run long CyberGym PoC-generation batches on a Linux server with systemd, Docker isolation, and a local verification server."
+description: "Run long CyberGym PoC-generation batches on a Linux server with Docker Compose, Docker isolation, and a local verification server."
 ---
 
 <Info>
@@ -22,14 +22,12 @@ It does not set up `qita board`; traces are read from disk or pulled with `rsync
 The model endpoint is remote; the server itself only grades. Docker is used for **agent tool isolation**, not for the grader.
 
 <Note>
-The systemd layout below runs both processes on the host. The Docker Compose path at the end runs only the batch runner; it expects a verification server started elsewhere, configured through `SERVER_URL` in `.env`.
 </Note>
 
 ## Prerequisites
 
 | Requirement | Why |
 | --- | --- |
-| Linux with systemd | Unit files in `deploy/cybergym/` target systemd |
 | Python **3.12+** | The CyberGym package imports `enum.StrEnum`; QitOS itself only needs 3.10+ |
 | Docker Engine on the **same host as the batch** | The batch runner creates one container per task |
 | A CyberGym source checkout | `qitos` imports `cybergym.task.gen_task` from `CYBERGYM_ROOT/src` |
@@ -47,9 +45,6 @@ The launcher expects two checkouts as siblings, plus the CyberGym tree and binar
 
 ```text
 /opt/qitos-bench/                 # WORKSPACE_ROOT
-├── qitos/                        # QITOS_ROOT (systemd mode only)
-├── cybergym_agent/               # AGENT_ROOT (systemd mode only)
-├── .venv/                        # PYTHON_BIN (systemd mode only)
 └── runs/
     └── level1-a/                 # RUN_ROOT
         ├── tasks.txt             # TASK_FILE
@@ -64,7 +59,7 @@ The launcher expects two checkouts as siblings, plus the CyberGym tree and binar
 /opt/cybergym-bin/cybergym-server-data/   # BINARY_DIR
 ```
 
-`WORKSPACE_ROOT`, `CYBERGYM_ROOT`, `DATA_DIR`, `AGENT_ROOT`, `QITOS_ROOT`, `PYTHON_BIN`, and `BINARY_DIR` all default to the validated 149 paths in `launch_v14_gdb_149.sh` and are overridden by the environment file, so no script edit is needed on a new host.
+CyberGym source, data, binary, and run-root paths are configured in `.env`; the QitOS/agent paths inside the runner image are pinned by Compose.
 
 ## Step 1 — Install host packages
 
@@ -157,83 +152,7 @@ CYBERGYM_MASK_MAP=/opt/cybergym/mask_map.json
 
 Otherwise every `submit_poc` fails with `Invalid task_id`.
 
-## Step 5 — Configure a run group
-
-Install the environment template once per group:
-
-```bash
-sudo install -d -m 0750 -o root -g qitos /etc/qitos/cybergym
-sudo install -m 0640 -o root -g qitos \
-  /opt/qitos-bench/qitos/deploy/cybergym/.env.systemd.example \
-  /etc/qitos/cybergym/level1-a.env
-sudo editor /etc/qitos/cybergym/level1-a.env
-```
-
-Set at minimum:
-
-| Key | Notes |
-| --- | --- |
-| `WORKSPACE_ROOT`, `CYBERGYM_ROOT`, `DATA_DIR`, `AGENT_ROOT`, `QITOS_ROOT` | Absolute paths from the layout above |
-| `PYTHON_BIN` | `/opt/qitos-bench/.venv/bin/python` |
-| `BINARY_DIR` | Prebuilt binaries root |
-| `RUN_ROOT`, `TASK_FILE`, `GROUP_NAME`, `TRACE_PREFIX` | One group; `TRACE_PREFIX` carries the agent version tag |
-| `SERVER_PORT` | Unique per group on the host (e.g. `6441`) |
-| `SERVER_URL` | Batch target. Defaults to the local server; change only when the server runs elsewhere |
-| `BASE_URL`, `MODEL_NAME`, `LLM_API_KEY` | `BASE_URL` **must** end with `/v1` |
-| `CYBERGYM_GRADING_KEY` | Must equal the key the verification server checks; never reuse `LLM_API_KEY` |
-| `CONCURRENCY` | Start at `2`; see [sizing](#resource-sizing) |
-| `MAX_RUNTIME_SECONDS` | Wall-clock budget per task (`14400` = 4 h) |
-
-<Warning>
-`LLM_API_KEY` authenticates model calls. `CYBERGYM_GRADING_KEY` authenticates PoC submissions. The launcher exports them separately (`OPENAI_API_KEY` / `CYBERGYM_CLAUDE_AUTH_TOKEN` vs `CYBERGYM_API_KEY`); swapping them produces authentication failures that look like model or grading outages.
-</Warning>
-
-### Optional model request overrides
-
-These variables override the model request values for one deployment; leave them unset to use the model family defaults (reasoning families get `65536` output tokens and a `1800` s timeout, other models `8192` / `360` s, and the context window is inferred from the model name).
-
-| Key | Overrides |
-| --- | --- |
-| `CYBERGYM_MAX_OUTPUT_TOKENS` | Maximum output tokens per model request |
-| `CYBERGYM_LLM_TIMEOUT_SECONDS` | Per-request timeout in seconds |
-| `CYBERGYM_CONTEXT_WINDOW` | Context window used for input/output budgeting |
-| `CYBERGYM_REASONING_EFFORT` | Reasoning effort sent to the endpoint (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; unset keeps the endpoint default) |
-
-Explicit `llm_config` values passed by code still win over these variables. A non-numeric value fails the run at startup instead of being ignored. The first task of a batch prints the effective values, their source, and the resolved model family once (`[CyberGym] model request limits: model=… family=… max_output_tokens=… timeout=… context_window=…`), so the batch log confirms what the run actually used.
-
-## Step 6 — Install the systemd units
-
-The units call a stable launcher name:
-
-```bash
-sudo ln -sf /opt/qitos-bench/qitos/qitos/benchmark/cybergym/agent/scripts/launch_v14_gdb_149.sh \
-  /usr/local/bin/qitos-cybergym-launch
-```
-
-Then install the units:
-
-```bash
-sudo cp /opt/qitos-bench/qitos/deploy/cybergym/qitos-cybergym-*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-```
-
-Start the server first, then the batch:
-
-```bash
-sudo systemctl enable --now qitos-cybergym-server@level1-a.service
-sudo systemctl enable --now qitos-cybergym-batch@level1-a.service
-```
-
-The batch unit declares `Requires=` on the server unit of the same instance, so starting the batch also starts the server if it is not running.
-
-Follow both:
-
-```bash
-journalctl -u qitos-cybergym-server@level1-a -f
-journalctl -u qitos-cybergym-batch@level1-a -f
-```
-
-## Docker Compose deployment (batch only)
+## Configure and start the batch
 
 `deploy/cybergym/compose.yaml` runs **only the batch runner**. Start the CyberGym verification server wherever you already run it, then point `SERVER_URL` at it; this Compose project does not manage the server.
 
@@ -283,6 +202,24 @@ Set at least:
 | `CONCURRENCY` | Start at `2`; see [sizing](#resource-sizing) |
 
 The file is gitignored. Keep it `0600` because it holds the model and grading keys.
+
+<Warning>
+`LLM_API_KEY` authenticates model calls. `CYBERGYM_GRADING_KEY` authenticates PoC submissions. The launcher exports them separately (`OPENAI_API_KEY` / `CYBERGYM_CLAUDE_AUTH_TOKEN` vs `CYBERGYM_API_KEY`); swapping them produces authentication failures that look like model or grading outages.
+</Warning>
+
+### Optional model request overrides
+
+These variables override the model request values for one deployment; leave them unset to use the model family defaults (reasoning families get `65536` output tokens and a `1800` s timeout, other models `8192` / `360` s, and the context window is inferred from the model name).
+
+| Key | Overrides |
+| --- | --- |
+| `CYBERGYM_MAX_OUTPUT_TOKENS` | Maximum output tokens per model request |
+| `CYBERGYM_LLM_TIMEOUT_SECONDS` | Per-request timeout in seconds |
+| `CYBERGYM_CONTEXT_WINDOW` | Context window used for input/output budgeting |
+| `CYBERGYM_REASONING_EFFORT` | Reasoning effort sent to the endpoint (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; unset keeps the endpoint default) |
+
+Explicit `llm_config` values passed by code still win over these variables. A non-numeric value fails the run at startup instead of being ignored. The first task of a batch prints the effective values, their source, and the resolved model family once (`[CyberGym] model request limits: model=… family=… max_output_tokens=… timeout=… context_window=…`), so the batch log confirms what the run actually used.
+
 
 Check the host layout before starting. The script creates `RUN_ROOT`, verifies the CyberGym checkout, binaries, task file, keys, and the agent image, and warns if `SERVER_URL` is not reachable yet:
 
@@ -351,7 +288,7 @@ The per-task agent image is separate and still has to exist on the host:
 docker image inspect cage/claude-code:cyberdebug
 ```
 
-## Step 7 — Verify the deployment
+## Verify the deployment
 
 ```bash
 # Server is listening.
@@ -370,12 +307,12 @@ docker inspect "$cid" --format '{{range .Mounts}}{{println .Source "->" .Destina
 
 Expected: `CAP_SYS_PTRACE` when a vulnerable binary was staged, `/out` mounted read-only from `BINARY_DIR`, and one container per concurrent task.
 
-## Step 8 — Monitor and score
+## Monitor and score
 
 The batch log and per-task traces:
 
 ```bash
-# systemd
+# launcher
 journalctl -u qitos-cybergym-batch@level1-a -f
 # Compose
 docker compose --env-file deploy/cybergym/.env -f deploy/cybergym/compose.yaml logs -f cybergym-batch
@@ -383,7 +320,7 @@ docker compose --env-file deploy/cybergym/.env -f deploy/cybergym/compose.yaml l
 ls /opt/qitos-bench/runs/level1-a/traces | tail
 ```
 
-The authoritative score is the grading database on the machine running the verification server, not the runner's `success` field. Its path is the server's `--db_path`; a same-host systemd deployment usually keeps it at `RUN_ROOT/server_poc/poc.db`:
+The authoritative score is the grading database on the machine running the verification server, not the runner's `success` field. Its path is the server's `--db_path`; a same-host deployment usually keeps it at `RUN_ROOT/server_poc/poc.db`:
 
 ```bash
 sqlite3 /opt/qitos-bench/runs/level1-a/server_poc/poc.db <<'SQL'
@@ -445,7 +382,7 @@ Two placement rules matter as much as the concurrency number:
 - `systemctl restart qitos-cybergym-batch@level1-a` is safe: completed tasks are skipped, unfinished tasks continue from their last checkpoint when the continue flag is on, and the launcher's `EXIT` trap removes the batch's containers.
 
 <Warning>
-Do not leave stale `.v14_gdb_launch.env` files in `RUN_ROOT` when you migrate a group to systemd. The launcher merges that file for tmux child modes, and while systemd environment values win over it, a stale port or endpoint in it is a needless source of confusion. Remove it after moving a group to systemd.
+Do not leave stale `.v14_gdb_launch.env` files in `RUN_ROOT` when reconfiguring a group. The launcher merges that file for tmux child modes, and a stale port or endpoint in it is a needless source of confusion. Remove it.
 </Warning>
 
 ## Running server and batch on different hosts
@@ -462,7 +399,7 @@ The default binds the server to `127.0.0.1`, which is correct for a single host.
 | --- | --- |
 | `Invalid task_id` on every submission | Server uses a mask map; set `CYBERGYM_MASK_MAP` to the same file |
 | `openai.NotFoundError: 404` | `BASE_URL` is missing the `/v1` suffix |
-| Batch exits immediately | `journalctl -u qitos-cybergym-batch@<group>` (systemd) or `docker compose ... logs cybergym-batch` (Compose); usually a missing path, key, or image |
+| Batch exits immediately | `docker compose ... logs cybergym-batch`; usually a missing path, key, or image |
 | Server starts, submissions fail auth | `CYBERGYM_GRADING_KEY` differs between server and batch |
 | `submit_poc` fails with connection refused/timeout | `SERVER_URL` is wrong, or the verification server is not running; check it from the batch host with `curl -sS -o /dev/null -w '%{http_code}\n' "$SERVER_URL"` |
 | Containers pile up | The launcher removes containers on exit; if it was `kill -9`'d, run `docker rm -f $(docker ps -aq --filter label=qitos.benchmark=cybergym)` |

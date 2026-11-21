@@ -1,6 +1,6 @@
 ---
 title: "在服务器上部署 CyberGym 跑批"
-description: "用 systemd、Docker 隔离和本地验证服务，在 Linux 服务器上长时间运行 CyberGym PoC 生成跑批。"
+description: "用 Docker Compose、Docker 隔离和本地验证服务，在 Linux 服务器上长时间运行 CyberGym PoC 生成跑批。"
 ---
 
 <Info>
@@ -22,14 +22,13 @@ description: "用 systemd、Docker 隔离和本地验证服务，在 Linux 服�
 模型端点在远端；服务器本身只负责验证。Docker 用于**隔离 agent 的工具执行**，不是用来跑验证服务的。
 
 <Note>
-下面的 systemd 方式会在宿主机上同时运行两个进程。文末的 Docker Compose 方式**只运行跑批进程**，验证服务在别处启动，通过 `.env` 里的 `SERVER_URL` 指定。
+本指南使用 Docker Compose 运行跑批进程；验证服务在别处启动，通过 `.env` 里的 `SERVER_URL` 指定。
 </Note>
 
 ## 前置条件
 
 | 要求 | 原因 |
 | --- | --- |
-| 带 systemd 的 Linux | `deploy/cybergym/` 下的单元文件面向 systemd |
 | Python **3.12+** | CyberGym 包导入了 `enum.StrEnum`；QitOS 本身只要求 3.10+ |
 | Docker Engine，与跑批在**同一台机器** | 跑批进程为每个任务创建一个容器 |
 | CyberGym 源码 checkout | `qitos` 会从 `CYBERGYM_ROOT/src` 导入 `cybergym.task.gen_task` |
@@ -47,9 +46,6 @@ description: "用 systemd、Docker 隔离和本地验证服务，在 Linux 服�
 
 ```text
 /opt/qitos-bench/                 # WORKSPACE_ROOT
-├── qitos/                        # QITOS_ROOT（仅 systemd 方式）
-├── cybergym_agent/               # AGENT_ROOT（仅 systemd 方式）
-├── .venv/                        # PYTHON_BIN（仅 systemd 方式）
 └── runs/
     └── level1-a/                 # RUN_ROOT
         ├── tasks.txt             # TASK_FILE
@@ -157,83 +153,7 @@ CYBERGYM_MASK_MAP=/opt/cybergym/mask_map.json
 
 否则每次 `submit_poc` 都会失败并返回 `Invalid task_id`。
 
-## 第 5 步 — 配置一个跑批组
-
-每个组安装一份环境文件：
-
-```bash
-sudo install -d -m 0750 -o root -g qitos /etc/qitos/cybergym
-sudo install -m 0640 -o root -g qitos \
-  /opt/qitos-bench/qitos/deploy/cybergym/.env.systemd.example \
-  /etc/qitos/cybergym/level1-a.env
-sudo editor /etc/qitos/cybergym/level1-a.env
-```
-
-至少需要设置：
-
-| 键 | 说明 |
-| --- | --- |
-| `WORKSPACE_ROOT`、`CYBERGYM_ROOT`、`DATA_DIR`、`AGENT_ROOT`、`QITOS_ROOT` | 上面布局中的绝对路径 |
-| `PYTHON_BIN` | `/opt/qitos-bench/.venv/bin/python` |
-| `BINARY_DIR` | 预编译二进制根目录 |
-| `RUN_ROOT`、`TASK_FILE`、`GROUP_NAME`、`TRACE_PREFIX` | 一个组；`TRACE_PREFIX` 带上 agent 版本 tag |
-| `SERVER_PORT` | 同一台机器上每组唯一（例如 `6441`） |
-| `SERVER_URL` | 跑批提交目标。默认指向本机验证服务；只在服务位于别处时修改 |
-| `BASE_URL`、`MODEL_NAME`、`LLM_API_KEY` | `BASE_URL` **必须**以 `/v1` 结尾 |
-| `CYBERGYM_GRADING_KEY` | 必须与验证服务校验的 key 一致；绝不能复用 `LLM_API_KEY` |
-| `CONCURRENCY` | 从 `2` 开始；见[资源估算](#资源估算) |
-| `MAX_RUNTIME_SECONDS` | 单任务墙钟预算（`14400` = 4 小时） |
-
-<Warning>
-`LLM_API_KEY` 用于模型调用，`CYBERGYM_GRADING_KEY` 用于 PoC 提交。启动脚本分别导出为 `OPENAI_API_KEY` / `CYBERGYM_CLAUDE_AUTH_TOKEN` 和 `CYBERGYM_API_KEY`；两者写反会表现为模型或验证服务"挂了"的认证错误。
-</Warning>
-
-### 可选的模型请求覆盖
-
-以下变量只为当前部署覆盖模型请求参数；留空则使用模型家族默认值（推理家族 `65536` 输出 token、`1800` 秒超时，其他模型 `8192` / `360` 秒，上下文窗口按模型名推断）。
-
-| 变量 | 覆盖内容 |
-| --- | --- |
-| `CYBERGYM_MAX_OUTPUT_TOKENS` | 单次模型请求的最大输出 token |
-| `CYBERGYM_LLM_TIMEOUT_SECONDS` | 单次请求超时（秒） |
-| `CYBERGYM_CONTEXT_WINDOW` | 用于输入/输出预算的上下文窗口 |
-| `CYBERGYM_REASONING_EFFORT` | 发送给端点的推理强度（`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；留空用端点默认值） |
-
-代码显式传入的 `llm_config` 仍然优先于这些变量。非数字值会在启动时直接报错，而不是被静默忽略。批次启动后会在日志里打印一次实际生效值、来源和解析到的模型家族（`[CyberGym] model request limits: model=… family=… max_output_tokens=… timeout=… context_window=…`），便于确认本次跑批真正使用的配置。
-
-## 第 6 步 — 安装 systemd 单元
-
-单元文件调用一个稳定的启动脚本名：
-
-```bash
-sudo ln -sf /opt/qitos-bench/qitos/qitos/benchmark/cybergym/agent/scripts/launch_v14_gdb_149.sh \
-  /usr/local/bin/qitos-cybergym-launch
-```
-
-安装单元：
-
-```bash
-sudo cp /opt/qitos-bench/qitos/deploy/cybergym/qitos-cybergym-*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-```
-
-先启动验证服务，再启动跑批：
-
-```bash
-sudo systemctl enable --now qitos-cybergym-server@level1-a.service
-sudo systemctl enable --now qitos-cybergym-batch@level1-a.service
-```
-
-跑批单元对同名验证服务声明了 `Requires=`，所以只启动跑批也会把服务带起来。
-
-跟踪日志：
-
-```bash
-journalctl -u qitos-cybergym-server@level1-a -f
-journalctl -u qitos-cybergym-batch@level1-a -f
-```
-
-## Docker Compose 部署（仅跑批）
+## 配置并启动跑批
 
 `deploy/cybergym/compose.yaml` **只运行跑批进程**。CyberGym 验证服务在你已有的位置单独启动，然后通过 `SERVER_URL` 指过去；这个 Compose 项目不管理验证服务。
 
@@ -283,6 +203,24 @@ $EDITOR deploy/cybergym/.env
 | `CONCURRENCY` | 从 `2` 开始；见[资源估算](#资源估算) |
 
 该文件已被 git 忽略。因为它同时保存模型 key 和打分 key，权限保持 `600`。
+
+<Warning>
+`LLM_API_KEY` 用于模型调用，`CYBERGYM_GRADING_KEY` 用于 PoC 提交。启动脚本分别导出为 `OPENAI_API_KEY` / `CYBERGYM_CLAUDE_AUTH_TOKEN` 和 `CYBERGYM_API_KEY`；两者写反会表现为模型或验证服务"挂了"的认证错误。
+</Warning>
+
+### 可选的模型请求覆盖
+
+以下变量只为当前部署覆盖模型请求参数；留空则使用模型家族默认值（推理家族 `65536` 输出 token、`1800` 秒超时，其他模型 `8192` / `360` 秒，上下文窗口按模型名推断）。
+
+| 变量 | 覆盖内容 |
+| --- | --- |
+| `CYBERGYM_MAX_OUTPUT_TOKENS` | 单次模型请求的最大输出 token |
+| `CYBERGYM_LLM_TIMEOUT_SECONDS` | 单次请求超时（秒） |
+| `CYBERGYM_CONTEXT_WINDOW` | 用于输入/输出预算的上下文窗口 |
+| `CYBERGYM_REASONING_EFFORT` | 发送给端点的推理强度（`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；留空用端点默认值） |
+
+代码显式传入的 `llm_config` 仍然优先于这些变量。非数字值会在启动时直接报错，而不是被静默忽略。批次启动后会在日志里打印一次实际生效值、来源和解析到的模型家族（`[CyberGym] model request limits: model=… family=… max_output_tokens=… timeout=… context_window=…`），便于确认本次跑批真正使用的配置。
+
 
 启动前先跑自检。脚本会创建 `RUN_ROOT`，检查 CyberGym 源码、二进制、任务文件、key 和 agent 镜像，并在 `SERVER_URL` 暂时不可达时给出警告：
 
@@ -351,7 +289,7 @@ PYTHON_BASE_IMAGE=mirror.example.com/library/python:3.12-slim DOCKER_CLI_IMAGE=m
 docker image inspect cage/claude-code:cyberdebug
 ```
 
-## 第 7 步 — 验收
+## 验证部署
 
 ```bash
 # 验证服务在监听
@@ -370,12 +308,12 @@ docker inspect "$cid" --format '{{range .Mounts}}{{println .Source "->" .Destina
 
 预期：挂载了漏洞二进制时存在 `CAP_SYS_PTRACE`；`/out` 从 `BINARY_DIR` 只读挂载；并发数等于容器数。
 
-## 第 8 步 — 监控与计分
+## 监控与计分
 
 跑批日志和每个任务的轨迹：
 
 ```bash
-# systemd
+# launcher
 journalctl -u qitos-cybergym-batch@level1-a -f
 # Compose
 docker compose --env-file deploy/cybergym/.env -f deploy/cybergym/compose.yaml logs -f cybergym-batch
@@ -383,7 +321,7 @@ docker compose --env-file deploy/cybergym/.env -f deploy/cybergym/compose.yaml l
 ls /opt/qitos-bench/runs/level1-a/traces | tail
 ```
 
-权威成绩在**验证服务所在机器**的数据库里，不是跑批结果的 `success` 字段。路径由 server 的 `--db_path` 决定；同机 systemd 部署通常是 `RUN_ROOT/server_poc/poc.db`：
+权威成绩在**验证服务所在机器**的数据库里，不是跑批结果的 `success` 字段。路径由 server 的 `--db_path` 决定；同机部署通常是 `RUN_ROOT/server_poc/poc.db`：
 
 ```bash
 sqlite3 /opt/qitos-bench/runs/level1-a/server_poc/poc.db <<'SQL'
@@ -447,7 +385,7 @@ bash deploy/cybergym/score.sh --since "2026-11-06 08:00:00"
 - `systemctl restart qitos-cybergym-batch@level1-a` 是安全的：已完成任务会跳过，启动脚本的 `EXIT` trap 会清理本次跑批的容器。
 
 <Warning>
-把某个组迁到 systemd 时，不要把旧的 `.v14_gdb_launch.env` 留在 `RUN_ROOT` 里。tmux 子模式下启动脚本会合并该文件；虽然 systemd 的环境值优先级更高，但文件里残留的旧端口或旧端点只会凭空制造困惑。迁移后请删除它。
+升级或重新配置一个组时，不要把旧的 `.v14_gdb_launch.env` 留在 `RUN_ROOT` 里。tmux 子模式下启动脚本会合并该文件，残留的旧端口或旧端点只会凭空制造困惑，应当删除。
 </Warning>
 
 ## 验证服务与跑批分机部署
@@ -464,7 +402,7 @@ bash deploy/cybergym/score.sh --since "2026-11-06 08:00:00"
 | --- | --- |
 | 每次提交都 `Invalid task_id` | 验证服务启用了掩码表；把 `CYBERGYM_MASK_MAP` 指向同一份文件 |
 | `openai.NotFoundError: 404` | `BASE_URL` 少了 `/v1` 后缀 |
-| 跑批一启动就退出 | systemd 看 `journalctl -u qitos-cybergym-batch@<group>`，Compose 看 `docker compose ... logs cybergym-batch`；通常是路径、key 或镜像缺失 |
+| 跑批一启动就退出 | `docker compose ... logs cybergym-batch`；通常是路径、key 或镜像缺失 |
 | 服务能起，但提交认证失败 | 服务端与跑批端的 `CYBERGYM_GRADING_KEY` 不一致 |
 | `submit_poc` 报连接被拒或超时 | `SERVER_URL` 写错，或验证服务没启动；在跑批机器上用 `curl -sS -o /dev/null -w '%{http_code}\n' "$SERVER_URL"` 确认 |
 | 容器越积越多 | 启动脚本退出时会清理容器；如果进程被 `kill -9`，执行 `docker rm -f $(docker ps -aq --filter label=qitos.benchmark=cybergym)` |

@@ -18,7 +18,6 @@ deploy/
 │   └── README.md
 └── cybergym/
     ├── .env.compose.example           # Docker Compose 部署模板
-    ├── .env.systemd.example           # systemd/宿主机部署模板
     ├── compose.yaml                   # 单服务：cybergym-batch
     ├── compose.build.yaml             # 可选：从源码重建 runner
     ├── compose-preflight.sh           # 启动前自检
@@ -27,8 +26,6 @@ deploy/
     ├── Dockerfile.runner              # runner 镜像构建文件
     ├── Dockerfile.runner.dockerignore
     ├── docker-entrypoint.sh
-    ├── qitos-cybergym-server@.service # 可选：systemd 验证服务
-    ├── qitos-cybergym-batch@.service  # 可选：systemd 跑批
     └── README.md
 ```
 
@@ -130,7 +127,7 @@ DOCKER_NETWORK=host
 - key 里含 `$`、`#` 或空格时，用单引号包起来。
 - `.env` 保存了密钥，权限保持 `600`，不要提交到 git。
 
-Compose 会固定 `WORKSPACE_ROOT`、`AGENT_ROOT`、`QITOS_ROOT`、`PYTHON_BIN` 为镜像内路径；`.env` 里这几个值只对 systemd 方式有意义。
+Compose 会固定 `WORKSPACE_ROOT`、`AGENT_ROOT`、`QITOS_ROOT`、`PYTHON_BIN` 为镜像内路径，不需要在 `.env` 中设置。
 
 ## 5. 预检
 
@@ -178,7 +175,7 @@ docker compose --env-file cybergym/.env -f cybergym/compose.yaml logs -f cybergy
 ls /opt/qitos-bench/runs/level1-a/traces | tail
 ```
 
-权威成绩看**验证服务所在机器**上的 `poc.db`（路径由 server 的 `--db_path` 决定；同机 systemd 部署通常是 `RUN_ROOT/server_poc/poc.db`）：
+权威成绩看**验证服务所在机器**上的 `poc.db`（路径由 server 的 `--db_path` 决定）：
 
 ```bash
 sqlite3 /path/to/server_poc/poc.db <<'SQL'
@@ -329,5 +326,5 @@ docker compose --env-file deploy/cybergym/.env \
 - 验证服务端口不要暴露到公网；按需用防火墙限制来源。
 - 轨迹目录里可能包含 PoC 内容和模型交互，分享前先脱敏。
 
-更完整的 systemd、分机部署和资源估算说明见
+更完整的分机部署和资源估算说明见
 [在线部署指南](https://qitor.mintlify.app/zh/guides/cybergym-server-deployment)。
